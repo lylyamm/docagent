@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Environnement
+.venv/
+.env
+
+# Outils
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Données générées
+data/output/*
+!data/output/.gitkeep
+
+# OS / éditeur
+.DS_Store
+Thumbs.db
