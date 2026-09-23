@@ -16,6 +16,7 @@ dist/
 htmlcov/
 
 # Données générées
+data/raw/
 data/output/*
 !data/output/.gitkeep
 
