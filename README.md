@@ -20,12 +20,19 @@ Requires [uv](https://docs.astral.sh/uv/).
 ```bash
 uv sync
 uv run pytest
+
+uv run python scripts/explore.py data/samples/hcc_2025_2col.pdf   # inspect PDF structure
+uv run python scripts/extract.py                                  # extract text blocks
+uv run python scripts/rebuild.py                                  # rebuild with a fake translation
 ```
+
+Outputs (annotated PDFs, JSON dumps, side-by-side comparisons) go to `data/output/`.
 
 ## Project layout
 
 ```
-src/docagent/     # package source
+src/docagent/pdf/        # extraction (TextBlock) and in-place reconstruction
+src/docagent/translate/  # translators (fake for now, LLM in phase 2)
 scripts/          # exploration and debug scripts
 tests/            # pytest suite
 data/samples/     # small public PDF excerpts (see data/SOURCES.md)
