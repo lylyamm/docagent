@@ -13,14 +13,15 @@ from pathlib import Path
 import pymupdf
 
 from .models import BBox, InlineStyle, TextBlock
-from .text import is_numeric, is_symbol, join_lines
+from .text import font_style, is_numeric, is_symbol, join_lines
 
 # Default flags, minus ligature preservation: "ﬃ" becomes "ffi".
 EXTRACT_FLAGS = pymupdf.TEXTFLAGS_RAWDICT & ~pymupdf.TEXT_PRESERVE_LIGATURES
 
-# Bits of span["flags"] (PyMuPDF "Text extraction flags").
-FLAG_ITALIC = 2
-FLAG_BOLD = 16
+# A footnote or item number set apart from its text: "10   Since AR5, ...".
+# The gap after it is wider than a normal space (as a fraction of the font size).
+LABEL_MAX_CHARS = 3
+LABEL_MIN_GAP = 0.6
 
 
 def _union(boxes: list[BBox]) -> BBox:
@@ -36,11 +37,33 @@ def _round(box) -> BBox:
     return tuple(round(v, 2) for v in box)
 
 
+def _number_label(chars: list[tuple[dict, dict]], start: int) -> int:
+    """Length of a number label at ``start`` ("10" in "10   Since AR5"), or 0.
+
+    Only digits followed by a clearly wider gap than a space count: in running
+    text ("10 countries") the gap is a normal space and nothing is cut.
+    """
+    end = start
+    while end < len(chars) and chars[end][0]["c"].isdigit():
+        end += 1
+    if not 0 < end - start <= LABEL_MAX_CHARS:
+        return 0
+    rest = end
+    while rest < len(chars) and chars[rest][0]["c"].isspace():
+        rest += 1
+    if rest == len(chars) or not chars[rest][0]["c"].isalpha():
+        return 0
+    size = chars[start][1]["size"]
+    gap = chars[rest][0]["bbox"][0] - chars[end - 1][0]["bbox"][2]
+    return rest - start if gap > LABEL_MIN_GAP * size else 0
+
+
 def _split_line(line: dict) -> tuple[list[tuple[str, dict]], BBox | None, list[BBox]]:
     """Characters of a line (with their span), bbox of its text, and leading bullets.
 
-    Leading bullets are cut out of the text and of the bbox, so they are neither
-    erased nor rewritten. Symbols elsewhere in the line are simply dropped.
+    Leading bullets, and a number label set apart from the text ("10   Since"),
+    are cut out of the text and of the bbox, so they are neither erased nor
+    rewritten. Symbols elsewhere in the line are simply dropped.
     """
     chars = [(c, span) for span in line["spans"] for c in span["chars"]]
     bullets: list[BBox] = []
@@ -49,6 +72,11 @@ def _split_line(line: dict) -> tuple[list[tuple[str, dict]], BBox | None, list[B
         if is_symbol(chars[i][0]["c"]):
             bullets.append(_round(chars[i][0]["bbox"]))
         i += 1
+    label = _number_label(chars, i)
+    if label:
+        digits = [c["bbox"] for c, _ in chars[i : i + label] if not c["c"].isspace()]
+        bullets.append(_round(_union(digits)))
+        i += label
     body = [(c, span) for c, span in chars[i:] if not is_symbol(c["c"])]
     if bullets and body:
         # A bullet's glyph box may overlap the first letter; clamp it so that
@@ -75,8 +103,7 @@ def _dominant_style(spans: list[dict]) -> tuple[str, float, int, bool, bool]:
                 span["font"],
                 round(span["size"], 1),
                 span["color"],
-                bool(span["flags"] & FLAG_BOLD),
-                bool(span["flags"] & FLAG_ITALIC),
+                *font_style(span["font"], span["flags"]),
             )
             weights[key] += n_chars
     return weights.most_common(1)[0][0]
@@ -115,11 +142,12 @@ def _markup(
         )
         out, current = [], None
         for char, span in chars:
+            bold_, italic_ = font_style(span["font"], span["flags"])
             style = InlineStyle(
                 font=span["font"],
                 color=span["color"],
-                bold=bool(span["flags"] & FLAG_BOLD),
-                italic=bool(span["flags"] & FLAG_ITALIC),
+                bold=bold_,
+                italic=italic_,
                 position=_position(span, size, baseline),
             )
             differs = (style.color, style.bold, style.italic, style.position) != (

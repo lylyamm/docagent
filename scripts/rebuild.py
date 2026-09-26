@@ -48,7 +48,7 @@ def main() -> None:
         rebuilt = OUTPUT_DIR / f"rebuilt_{path.stem}.pdf"
         report = rebuild_document(path, rebuilt, translate, min_scale=args.min_scale)
         side_by_side(path, rebuilt, OUTPUT_DIR / f"compare_{path.stem}.pdf")
-        check = verify_rebuild(path, rebuilt, translate)
+        check = verify_rebuild(path, rebuilt, report)
         elapsed = time.perf_counter() - start
         numbers = f"{check.numbers_kept}/{check.numbers_total}"
         overlaps = f"{check.overlaps_before}->{check.overlaps_after}"

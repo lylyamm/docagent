@@ -75,8 +75,26 @@ def is_math_font(font: str) -> bool:
 # Inline style markup: "<s1>Au cours de la dernière décennie,</s1> le réchauffement".
 # Tags reference entries of TextBlock.styles; the translator must keep them.
 TAG_RE = re.compile(r"</?s\d+>")
+# HTML tags an LLM may add on its own: "XXI<sup>e</sup> siècle", "CO<sub>2</sub>".
+# They are rendered (sub/superscript, bold, italic) instead of being shown as text.
+HTML_TAG_RE = re.compile(r"</?(?:sub|sup|b|i|em|strong)>|<br\s*/?>", re.I)
 
 
 def strip_tags(markup: str) -> str:
     """Plain text of a markup string."""
-    return TAG_RE.sub("", markup)
+    return HTML_TAG_RE.sub("", TAG_RE.sub("", markup))
+
+
+# Style words in font names. Many PDFs don't set the bold/italic flags and only
+# say it in the name: "FrutigerLTPro-BlackCn", "FrutigerLTPro-CondensedI".
+_BOLD_NAME_RE = re.compile(r"bold|black|heavy|demi|ultra|medi(?!um)", re.I)
+# "Italic", "Oblique", or a trailing "I"/"It" after the weight ("CondensedI", "LightCnIt").
+_ITALIC_NAME_RE = re.compile(r"(?i:italic|oblique)|(?<=[a-z])(?:I|It)(?:MT)?$")
+
+
+def font_style(font: str, flags: int) -> tuple[bool, bool]:
+    """(bold, italic) from a span's flags and its font name."""
+    style = font.split("+", 1)[-1].split("-", 1)[-1] if "-" in font else ""
+    bold = bool(flags & 16) or bool(_BOLD_NAME_RE.search(style))
+    italic = bool(flags & 2) or bool(_ITALIC_NAME_RE.search(style))
+    return bold, italic

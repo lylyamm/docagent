@@ -1,0 +1,15 @@
+.git
+.venv
+.env
+.cache
+.jobs
+.pytest_cache
+.ruff_cache
+**/__pycache__
+data
+!data/glossary_*.json
+tests
+scripts
+.vscode
+*.md
+!README.md

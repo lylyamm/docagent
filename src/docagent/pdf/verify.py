@@ -1,12 +1,13 @@
 """Automatic checks comparing a source PDF with its rebuilt version."""
 
+import re
 from pathlib import Path
 
 import pymupdf
 from pydantic import BaseModel
 
 from .extract import extract_blocks
-from .rebuild import Translator, plan_targets
+from .rebuild import DocumentReport
 from .text import is_numeric, strip_tags
 
 
@@ -23,6 +24,8 @@ class VerifyReport(BaseModel):
     numbers_kept: int  # numeric blocks still readable at the same place
     numbers_total: int
     lost_numbers: list[str]
+    markup_leaks: int = 0  # style or HTML tags printed as text ("CO<sub>2</sub>")
+    empty_zones: int = 0  # rewritten zones where no text at all was written
 
     @property
     def ok(self) -> bool:
@@ -32,12 +35,17 @@ class VerifyReport(BaseModel):
             and self.residual_source == 0
             and self.numbers_kept == self.numbers_total
             and self.overlaps_after <= self.overlaps_before
+            and self.markup_leaks == 0
+            and self.empty_zones == 0
         )
 
 
 def _visible_drawings(page: pymupdf.Page) -> int:
     """Vector drawings intersecting the page (ignores off-page artefacts)."""
     return sum(1 for d in page.get_drawings() if d["rect"].intersects(page.rect))
+
+
+_MARKUP_RE = re.compile(r"</?(?:s\d+|sub|sup|b|i|em|strong|span)\b[^>]*>", re.I)
 
 
 def _compact(text: str) -> str:
@@ -78,11 +86,11 @@ def count_overlaps(page: pymupdf.Page) -> int:
     return len(pairs)
 
 
-def verify_rebuild(source: str | Path, rebuilt: str | Path, translate: Translator) -> VerifyReport:
+def verify_rebuild(source: str | Path, rebuilt: str | Path, report: DocumentReport) -> VerifyReport:
     """Check that graphics survived, source text is gone and numbers are untouched."""
     residual = checked = kept = total = 0
     same_images = drawings_before = drawings_after = 0
-    overlaps_before = overlaps_after = 0
+    overlaps_before = overlaps_after = leaks = empty = 0
     lost: list[str] = []
     with pymupdf.open(source) as src, pymupdf.open(rebuilt) as out:
         for before, after in zip(src, out, strict=True):
@@ -91,10 +99,15 @@ def verify_rebuild(source: str | Path, rebuilt: str | Path, translate: Translato
             drawings_after += _visible_drawings(after)
             overlaps_before += count_overlaps(before)
             overlaps_after += count_overlaps(after)
+            tags_after = len(_MARKUP_RE.findall(after.get_text()))
+            leaks += max(tags_after - len(_MARKUP_RE.findall(before.get_text())), 0)
 
             blocks = extract_blocks(before)
             words_after = after.get_text("words")
-            for target in plan_targets(blocks, translate):
+            for target in report.pages[before.number].zones:
+                zone = pymupdf.Rect(target.bbox) + (-2, -2, 2, 2)
+                if strip_tags(target.translation).strip() and not _text_in(words_after, zone):
+                    empty += 1
                 # Source words that the translation itself doesn't contain (the
                 # fake translation's padding repeats source words in lowercase).
                 translated = strip_tags(target.translation)
@@ -136,4 +149,6 @@ def verify_rebuild(source: str | Path, rebuilt: str | Path, translate: Translato
             numbers_kept=kept,
             numbers_total=total,
             lost_numbers=lost,
+            markup_leaks=leaks,
+            empty_zones=empty,
         )

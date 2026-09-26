@@ -8,6 +8,8 @@ Reconstruction must cope with that expansion.
 import math
 import re
 
+from .base import Translator
+
 # Inline style tags ("<s1>…</s1>") must survive translation untouched.
 _TAG_RE = re.compile(r"(</?s\d+>)")
 
@@ -42,3 +44,16 @@ def fake_translate(text: str, expansion: float = 0.2, uppercase: bool = True) ->
     if uppercase:
         padding = padding.lower()
     return f"{converted.rstrip()} {padding}"
+
+
+class FakeTranslator(Translator):
+    """Translator wrapper around :func:`fake_translate` (no network, no cost)."""
+
+    name = "fake"
+
+    def __init__(self, expansion: float = 0.2, uppercase: bool = True) -> None:
+        self.expansion = expansion
+        self.uppercase = uppercase
+
+    def translate_blocks(self, texts: list[str], source: str, target: str) -> list[str]:
+        return [fake_translate(t, self.expansion, self.uppercase) for t in texts]

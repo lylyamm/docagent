@@ -1,5 +1,21 @@
-"""Translation backends. Phase 1 only has a fake translator; the LLM comes in phase 2."""
+"""Translation backends: a fake one for layout tests, any OpenAI-compatible LLM for real ones."""
 
-from .fake import fake_translate
+from .base import FunctionTranslator, Translator, as_translator
+from .cache import CachedTranslator
+from .factory import build_translator, llm_stats
+from .fake import FakeTranslator, fake_translate
+from .glossary import Glossary
+from .llm import ChatTranslator
 
-__all__ = ["fake_translate"]
+__all__ = [
+    "CachedTranslator",
+    "ChatTranslator",
+    "FakeTranslator",
+    "FunctionTranslator",
+    "Glossary",
+    "Translator",
+    "as_translator",
+    "build_translator",
+    "fake_translate",
+    "llm_stats",
+]

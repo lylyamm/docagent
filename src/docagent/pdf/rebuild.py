@@ -18,11 +18,10 @@ from pathlib import Path
 import pymupdf
 from pydantic import BaseModel
 
+from ..translate.base import Translator, as_translator
 from .extract import extract_blocks
 from .models import BBox, TextBlock
 from .text import TAG_RE, has_words, is_math_font, is_numeric, strip_tags
-
-Translator = Callable[[str], str]
 
 # Shrink redaction rectangles slightly so they don't bite into neighbouring text.
 REDACT_MARGIN = 0.5
@@ -38,12 +37,20 @@ class Target(BaseModel):
 
     bbox: BBox
     source: str
-    translation: str
+    translation: str = ""
     block: TextBlock
 
     @property
     def plain_translation(self) -> str:
         return strip_tags(self.translation)
+
+
+class Zone(BaseModel):
+    """What was written where: kept in the report for checks and debugging."""
+
+    bbox: BBox
+    source: str
+    translation: str
 
 
 class PageReport(BaseModel):
@@ -54,6 +61,7 @@ class PageReport(BaseModel):
     overflow: int  # did not fit even at min_scale
     original_font: int  # rewritten with the document's own embedded font
     min_scale: float
+    zones: list[Zone] = []
 
 
 class DocumentReport(BaseModel):
@@ -165,55 +173,80 @@ class FontCatalog:
         return self._ink[key]
 
 
+# HTML tags a translator may add on its own ("XXI<sup>e</sup>", "CO<sub>2</sub>").
+_HTML_CSS = {
+    "sub": "vertical-align: sub; font-size: 70%",
+    "sup": "vertical-align: super; font-size: 70%",
+    "b": "font-weight: bold",
+    "strong": "font-weight: bold",
+    "i": "font-style: italic",
+    "em": "font-style: italic",
+}
+_PART_RE = re.compile(r"(</?s\d+>|</?(?:sub|sup|b|i|em|strong)>|<br\s*/?>)", re.I)
+
+
 def markup_to_html(target: Target, fonts: "FontCatalog | None") -> tuple[str, str]:
     """HTML for a target's translation, and the @font-face rules its runs need.
 
     Each tagged run becomes a <span> with its own colour, weight, slant and
     vertical position, in its original font when that font can draw the run.
-    Unknown or unbalanced tags (a translator mistake) are dropped, never shown.
+    HTML tags the translator added (``<sup>``, ``<sub>``, ``<b>``, ``<i>``) are
+    rendered too. Unknown or unbalanced tags are dropped, never shown as text.
     """
     styles = target.block.styles
     faces: list[str] = []
     html: list[str] = []
-    open_tag: str | None = None
-    for part in re.split(r"(</?s\d+>)", target.translation):
+    stack: list[str] = []  # open spans, by tag name ("s1", "sup"...)
+    for part in _PART_RE.split(target.translation):
         if not part:
             continue
-        match = TAG_RE.fullmatch(part)
-        if not match:
+        if not _PART_RE.fullmatch(part):
             html.append(escape(part))
             continue
-        name = part.strip("</>")
+        name = part.strip("</>").lower()
+        if name.startswith("br"):
+            html.append(" ")
+            continue
         if part.startswith("</"):
-            if open_tag == name:
-                html.append("</span>")
-                open_tag = None
+            if name in stack:  # close it, and anything left open inside it
+                while stack:
+                    html.append("</span>")
+                    if stack.pop() == name:
+                        break
             continue
-        if name not in styles or open_tag:
+        if name in _HTML_CSS:
+            html.append(f'<span style="{_HTML_CSS[name]}">')
+            stack.append(name)
             continue
-        style = styles[name]
-        run_text = _run_text(target.translation, name)
-        css = [f"color: #{style.color:06x}"]
-        font_file = fonts.find(style.font, run_text) if fonts else None
-        if font_file:
-            family = f"run{len(faces)}"
-            faces.append(f"@font-face {{ font-family: {family}; src: url({font_file}); }}")
-            css += [f"font-family: {family}", "font-weight: normal", "font-style: normal"]
-        else:
-            css += [
-                f"font-weight: {'bold' if style.bold else 'normal'}",
-                f"font-style: {'italic' if style.italic else 'normal'}",
-            ]
-            if font_file is None and fonts and style.font != target.block.font:
-                css.append(f"font-family: {_font_family(style.font)}")
-        if style.position:
-            css += [f"vertical-align: {'super' if style.position == 'sup' else 'sub'}"]
-            css += ["font-size: 70%"]
-        html.append(f'<span style="{"; ".join(css)}">')
-        open_tag = name
-    if open_tag:
-        html.append("</span>")
+        if name not in styles or any(TAG_RE.fullmatch(f"<{n}>") for n in stack):
+            continue  # unknown style, or nested in another style run
+        html.append(f'<span style="{_run_css(target, name, fonts, faces)}">')
+        stack.append(name)
+    html.extend("</span>" for _ in stack)
     return "".join(html), " ".join(faces)
+
+
+def _run_css(target: Target, name: str, fonts: "FontCatalog | None", faces: list[str]) -> str:
+    """CSS of a style run; adds the @font-face it needs to ``faces``."""
+    style = target.block.styles[name]
+    run_text = strip_tags(_run_text(target.translation, name))
+    css = [f"color: #{style.color:06x}"]
+    font_file = fonts.find(style.font, run_text) if fonts else None
+    if font_file:
+        family = f"run{len(faces)}"
+        faces.append(f"@font-face {{ font-family: {family}; src: url({font_file}); }}")
+        css += [f"font-family: {family}", "font-weight: normal", "font-style: normal"]
+    else:
+        css += [
+            f"font-weight: {'bold' if style.bold else 'normal'}",
+            f"font-style: {'italic' if style.italic else 'normal'}",
+        ]
+        if fonts and style.font != target.block.font:
+            css.append(f"font-family: {_font_family(style.font)}")
+    if style.position:
+        css += [f"vertical-align: {'super' if style.position == 'sup' else 'sub'}"]
+        css += ["font-size: 70%"]
+    return "; ".join(css)
 
 
 def _run_text(markup: str, name: str) -> str:
@@ -231,7 +264,11 @@ def _line_height(block: TextBlock) -> float:
 
 
 def block_css(
-    block: TextBlock, font_file: str | None = None, scale: float = 1.0, faces: str = ""
+    block: TextBlock,
+    font_file: str | None = None,
+    scale: float = 1.0,
+    faces: str = "",
+    align: str | None = None,
 ) -> str:
     """CSS reproducing the dominant style of a block, optionally scaled down.
 
@@ -246,7 +283,8 @@ def block_css(
         family = _font_family(block.font)
         weight = "bold" if block.bold else "normal"
         style = "italic" if block.italic else "normal"
-    align = "left" if block.rewrite_by_line else (block.alignment or "left")
+    if align is None:
+        align = "left" if block.rewrite_by_line else (block.alignment or "left")
     # First line starting further right (indent, or a bullet kept in place).
     indent = 0.0 if block.rewrite_by_line else block.line_bboxes[0][0] - block.bbox[0]
     return (
@@ -290,7 +328,7 @@ def stacked_lines(blocks: list[TextBlock]) -> set[BBox]:
     return stacked
 
 
-def plan_targets(blocks: list[TextBlock], translate: Translator) -> list[Target]:
+def plan_targets(blocks: list[TextBlock]) -> list[Target]:
     """Decide what to rewrite: whole paragraphs, or single lines (cells, chart labels)."""
     targets: list[Target] = []
     stacked = stacked_lines(blocks)
@@ -303,19 +341,10 @@ def plan_targets(blocks: list[TextBlock], translate: Translator) -> list[Target]
             markups = block.line_markups or block.lines
             for text, markup, bbox in zip(block.lines, markups, block.line_bboxes, strict=True):
                 if bbox not in stacked and has_words(text) and not is_numeric(text):
-                    targets.append(
-                        Target(bbox=bbox, source=markup, translation=translate(markup), block=block)
-                    )
+                    targets.append(Target(bbox=bbox, source=markup, block=block))
         else:
             markup = block.markup or block.text
-            targets.append(
-                Target(
-                    bbox=block.bbox,
-                    source=markup,
-                    translation=translate(markup),
-                    block=block,
-                )
-            )
+            targets.append(Target(bbox=block.bbox, source=markup, block=block))
     return targets
 
 
@@ -419,10 +448,12 @@ class FreeSpace:
         for y in range(y0, y1):
             self.grid[y * self.width + x0 : y * self.width + x1] = filled
 
-    def room_below(self, bbox: BBox, limit: float) -> float:
+    def room_below(self, bbox: BBox, limit: float, keep_gap: float = 0.0) -> float:
         """Free height (pt) directly below ``bbox``, up to ``limit``.
 
-        Text never leaves the coloured panel or frame it sits in.
+        ``keep_gap`` is the share of the original gap to the next obstacle that
+        must stay empty: paragraphs keep a visible space between them instead
+        of the translation filling it. Text never leaves its coloured panel.
         """
         rect = pymupdf.Rect(bbox)
         for panel in self.panels:
@@ -430,10 +461,21 @@ class FreeSpace:
                 limit = min(limit, panel.y1 - bbox[3] - 2)
         x0, x1 = max(int(bbox[0]) + 1, 0), min(int(bbox[2]), self.width)
         start = int(bbox[3]) + 2
-        for y in range(start, min(int(bbox[3] + limit) + 1, self.height)):
+        # Look further than the limit: the gap is measured to the next obstacle.
+        horizon = limit / (1 - keep_gap) if keep_gap < 1 else limit
+        for y in range(start, min(int(bbox[3] + horizon) + 3, self.height)):
             if any(self.grid[y * self.width + x0 : y * self.width + x1]):
-                return max(y - bbox[3] - 2, 0)
+                gap = y - bbox[3]
+                return max(min(limit, gap * (1 - keep_gap) - 2), 0)
         return max(min(limit, self.height - 1 - bbox[3] - 2), 0)
+
+    def gap_below(self, bbox: BBox, horizon: float) -> float:
+        """Distance (pt) from ``bbox`` down to the first obstacle, up to ``horizon``."""
+        x0, x1 = max(int(bbox[0]) + 1, 0), min(int(bbox[2]), self.width)
+        for y in range(int(bbox[3]) + 1, min(int(bbox[3] + horizon) + 1, self.height)):
+            if any(self.grid[y * self.width + x0 : y * self.width + x1]):
+                return max(y - bbox[3], 0)
+        return horizon
 
     def room_right(self, rect: pymupdf.Rect, limit: float) -> float:
         """Free width (pt) directly right of ``rect``, up to ``limit``."""
@@ -447,20 +489,83 @@ class FreeSpace:
                 return max(x - rect.x1 - 2, 0)
         return max(min(limit, self.width - 1 - rect.x1 - 2), 0)
 
+    def room_left(self, rect: pymupdf.Rect, limit: float) -> float:
+        """Free width (pt) directly left of ``rect``, up to ``limit``."""
+        for panel in self.panels:
+            if panel.contains(rect):
+                limit = min(limit, rect.x0 - panel.x0 - 2)
+        y0, y1 = max(int(rect.y0) + 1, 0), min(int(rect.y1), self.height)
+        start = int(rect.x0) - 2
+        for x in range(start, max(int(rect.x0 - limit) - 1, -1), -1):
+            if any(self.grid[y * self.width + x] for y in range(y0, y1)):
+                return max(rect.x0 - x - 2, 0)
+        return max(min(limit, rect.x0 - 2), 0)
+
+
+# Share of the space between two paragraphs that the translation may not fill.
+KEEP_GAP = 0.6
+
 
 def insert_rect(target: Target, space: FreeSpace) -> pymupdf.Rect:
     """Where to write a target: its bbox, extended into free space.
 
     - Down: capped at the original height plus one line, so text doesn't drift
-      far from where it was.
+      far from where it was, and never closer than ``KEEP_GAP`` of the original
+      spacing to the text below (paragraphs stay visibly separated).
     - Right: half a font size of slack when free. The bbox is the exact extent
       of the source glyphs, so a word that the source fitted on the line could
       miss it by less than a point here and wrap, leaving a visibly short line.
     """
     x0, y0, x1, y1 = target.bbox
     size = target.block.size
-    rect = pymupdf.Rect(x0, y0, x1, y1 + space.room_below(target.bbox, (y1 - y0) + size * 1.2))
+    room = space.room_below(target.bbox, (y1 - y0) + size * 1.2, keep_gap=KEEP_GAP)
+    rect = pymupdf.Rect(x0, y0, x1, y1 + room)
     return rect + (0, 0, space.room_right(rect, 0.5 * size), 0)
+
+
+def single_line_rect(
+    target: Target, space: FreeSpace, column: tuple[float, float], page_width: float
+) -> tuple[pymupdf.Rect, str]:
+    """Box and alignment for a one-line text that should stay on one line.
+
+    A heading or running header wraps badly ("Résumé à l'intention des /
+    décideurs"): the box is widened sideways, within the page's text column and
+    the free space, on the side the line is anchored to.
+    """
+    x0, y0, x1, y1 = target.bbox
+    rect = pymupdf.Rect(target.bbox)
+    left_edge, right_edge = column
+    center = (x0 + x1) / 2
+    if x1 > right_edge - 2 and x0 - left_edge > 0.25 * (right_edge - left_edge):
+        return rect - (space.room_left(rect, x0 - left_edge), 0, 0, 0), "right"
+    if abs(center - page_width / 2) < 2 and x0 - left_edge > 20:
+        side = min(space.room_left(rect, x0 - left_edge), space.room_right(rect, right_edge - x1))
+        return rect + (-side, 0, side, 0), "center"
+    return rect + (0, 0, space.room_right(rect, max(right_edge - x1, 0)), 0), "left"
+
+
+def body_boxes(blocks: list[TextBlock]) -> list[BBox]:
+    """Boxes of the page's paragraphs (multi-line blocks), which define its columns."""
+    body = [b.bbox for b in blocks if b.horizontal and len(b.line_bboxes) > 1]
+    return body or [b.bbox for b in blocks if b.horizontal]
+
+
+def text_column(bodies: list[BBox], bbox: BBox) -> tuple[float, float]:
+    """Left and right edges of the text column a line belongs to.
+
+    The column is made of the paragraphs spanning the line's left edge, so in a
+    two-column layout a line of the left column never widens into the right
+    one. Headers or side tabs outside every paragraph use the whole body width.
+    """
+    x0 = bbox[0]
+    same = [b for b in bodies if b[0] - 2 <= x0 < b[2]] or bodies
+    if not same:
+        return bbox[0], bbox[2]
+    return min(b[0] for b in same), max(b[2] for b in same)
+
+
+# Below this scale, a one-line text may wrap onto a second line instead.
+SINGLE_LINE_MIN_SCALE = 0.85
 
 
 def _style_key(block: TextBlock) -> tuple:
@@ -503,13 +608,25 @@ def _group_scales(plans: list[tuple]) -> dict[tuple, float]:
 
 def rebuild_page(
     page: pymupdf.Page,
-    translate: Translator,
+    translator: "Translator | Callable[[str], str]",
     min_scale: float = 0.5,
     fonts: FontCatalog | None = None,
+    source_lang: str = "en",
+    target_lang: str = "fr",
 ) -> PageReport:
-    """Replace the translatable text of a page in place."""
+    """Replace the translatable text of a page in place.
+
+    All the page's texts go to the translator in one call, in reading order,
+    so an LLM sees each block in context.
+    """
     blocks = extract_blocks(page)
-    targets = plan_targets(blocks, translate)
+    targets = plan_targets(blocks)
+    if targets:
+        translations = as_translator(translator).translate_blocks(
+            [t.source for t in targets], source_lang, target_lang
+        )
+        for target, translation in zip(targets, translations, strict=True):
+            target.translation = translation
     fragments = inline_fragments(blocks, targets)
     protected = protected_boxes(blocks, targets, erased=fragments)
     space = FreeSpace(page, blocks)  # computed before erasing anything
@@ -529,6 +646,7 @@ def rebuild_page(
     #    space first and shrinking the text only if it still doesn't fit.
     #    Blocks sharing a style get the same scale, so similar paragraphs keep
     #    the same size instead of each one shrinking by a different amount.
+    bodies = body_boxes(blocks)
     plans = []
     for target in targets:
         font_file = fonts.find(target.block.font, target.plain_translation) if fonts else None
@@ -545,22 +663,45 @@ def rebuild_page(
             wider_needed = _fit_scale(page, wider, html, css, fonts, min_scale)
             if wider_needed > needed:
                 rect, needed = wider, wider_needed
-        plans.append((target, font_file, rect, needed, html, faces))
+        align = None
+        one_line = len(target.block.line_bboxes) == 1 or target.block.rewrite_by_line
+        if one_line and space.gap_below(target.bbox, target.block.size) > 0.3 * target.block.size:
+            # One line in the source: keep one line, widened sideways, unless
+            # that needs a much smaller font than wrapping does. Not for a line
+            # glued to the text below it (a caption split into several blocks).
+            column = text_column(bodies, target.bbox)
+            line_rect, line_align = single_line_rect(target, space, column, page.rect.width)
+            line_css = block_css(target.block, font_file, faces=faces, align=line_align)
+            line_needed = _fit_scale(page, line_rect, html, line_css, fonts, min_scale)
+            if line_needed >= min(needed, SINGLE_LINE_MIN_SCALE):
+                rect, needed, align = line_rect, line_needed, line_align
+        plans.append((target, font_file, rect, needed, html, faces, align))
     group_scale = _group_scales(plans)
 
     scaled = overflow = reused = 0
     smallest = 1.0
     scales: list[float] = []
-    for target, font_file, rect, _needed, html, faces in plans:
+    for target, font_file, rect, _needed, html, faces, align in plans:
         reused += font_file is not None
         start = group_scale[_style_key(target.block)]
         spare_height, scale = page.insert_htmlbox(
             rect,
             html,
-            css=block_css(target.block, font_file, scale=start, faces=faces),
+            css=block_css(target.block, font_file, scale=start, faces=faces, align=align),
             archive=fonts.archive if fonts else None,
             scale_low=min_scale / start,
         )
+        if spare_height < 0:
+            # Too long even at min_scale: insert_htmlbox wrote nothing. Write it
+            # anyway, as small as needed, rather than lose the text (counted).
+            spare_height, scale = page.insert_htmlbox(
+                rect,
+                html,
+                css=block_css(target.block, font_file, scale=start, faces=faces, align=align),
+                archive=fonts.archive if fonts else None,
+                scale_low=0,
+            )
+            spare_height = -1.0
         scale *= start
         scales.append(scale)
         if spare_height < 0:
@@ -577,20 +718,32 @@ def rebuild_page(
         overflow=overflow,
         original_font=reused,
         min_scale=round(smallest, 3),
+        zones=[Zone(bbox=t.bbox, source=t.source, translation=t.translation) for t in targets],
     )
 
 
 def rebuild_document(
     source: str | Path,
     output: str | Path,
-    translate: Translator,
+    translator: "Translator | Callable[[str], str]",
     min_scale: float = 0.5,
+    source_lang: str = "en",
+    target_lang: str = "fr",
+    on_page: Callable[[int, int], None] | None = None,
 ) -> DocumentReport:
-    """Translate every page of ``source`` and save the result to ``output``."""
+    """Translate every page of ``source`` and save the result to ``output``.
+
+    ``on_page(done, total)`` is called after each page (progress reporting).
+    """
     source, output = Path(source), Path(output)
+    translator = as_translator(translator)
     with pymupdf.open(source) as doc:
         fonts = FontCatalog(doc)
-        pages = [rebuild_page(page, translate, min_scale, fonts) for page in doc]
+        pages = []
+        for page in doc:
+            pages.append(rebuild_page(page, translator, min_scale, fonts, source_lang, target_lang))
+            if on_page:
+                on_page(len(pages), doc.page_count)
         output.parent.mkdir(parents=True, exist_ok=True)
         # insert_htmlbox embeds a font copy per call: subset the fonts and let
         # garbage=4 merge duplicate objects, otherwise the file is ~10x bigger.

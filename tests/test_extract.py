@@ -7,7 +7,7 @@ import pytest
 
 from docagent.pdf import TextBlock, extract_blocks, extract_document
 from docagent.pdf.extract import is_numeric, join_lines
-from docagent.pdf.text import has_words, is_symbol
+from docagent.pdf.text import font_style, has_words, is_symbol
 
 SAMPLES = Path(__file__).parent.parent / "data" / "samples"
 
@@ -185,3 +185,45 @@ def test_footnote_marker_is_superscript():
     block = next(b for b in blocks if b.text.startswith("Les Français affichent"))
     assert "climatique<s1>I</s1>," in block.markup
     assert block.styles["s1"].position == "sup"
+
+
+@pytest.mark.parametrize(
+    ("font", "expected"),
+    [
+        ("FrutigerLTPro-BlackCn", (True, False)),
+        ("FrutigerLTPro-CondensedI", (False, True)),
+        ("FrutigerLTPro-Condensed", (False, False)),
+        ("ABCDEF+Lato-BoldItalic", (True, True)),
+        ("TimesNewRomanPS-ItalicMT", (False, True)),
+        ("Arial", (False, False)),
+    ],
+)
+def test_bold_and_italic_are_read_from_the_font_name(font, expected):
+    # IPCC fonts carry no bold/italic flag: the style is only in the name.
+    assert font_style(font, 0) == expected
+
+
+@pytest.mark.skipif(not (SAMPLES / "giec_spm_en.pdf").exists(), reason="GIEC sample missing")
+def test_italic_runs_are_tagged_from_font_name():
+    blocks = extract_document(SAMPLES / "giec_spm_en.pdf")
+    block = next(b for b in blocks if b.text.startswith("The likely range"))
+    assert block.markup.startswith("The <s1>likely</s1> range")
+    assert block.styles["s1"].italic
+
+
+@pytest.mark.skipif(not (SAMPLES / "giec_spm_en.pdf").exists(), reason="GIEC sample missing")
+def test_footnote_number_is_cut_out_like_a_bullet():
+    # "10   Since AR5, ..." is one PDF line: the number stays in place, untranslated.
+    blocks = extract_document(SAMPLES / "giec_spm_en.pdf")
+    block = next(b for b in blocks if "Since AR5, methodological" in b.text)
+    assert block.text.startswith("Since AR5")
+    assert len(block.bullet_bboxes) == 1
+
+
+def test_number_followed_by_a_normal_space_is_text():
+    page = pymupdf.open().new_page()
+    page.insert_text((60, 100), "10 countries agreed", fontsize=10)
+    page.insert_text((60, 200), "12      Throughout this report", fontsize=10)
+    texts = {b.text: b.bullet_bboxes for b in extract_blocks(page)}
+    assert texts["10 countries agreed"] == []
+    assert len(texts["Throughout this report"]) == 1

@@ -8,6 +8,7 @@ dist/
 # Environnement
 .venv/
 .env
+.cache/
 
 # Outils
 .pytest_cache/

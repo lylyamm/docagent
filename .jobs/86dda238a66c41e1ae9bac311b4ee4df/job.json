@@ -1,0 +1,19 @@
+{
+  "id": "86dda238a66c41e1ae9bac311b4ee4df",
+  "filename": "Preparation_entretien_EDF_Data_Scientist.pdf",
+  "source_lang": "fr",
+  "target_lang": "en",
+  "status": "done",
+  "pages_total": 9,
+  "pages_done": 9,
+  "created_at": "2026-09-26T19:36:32.256490Z",
+  "finished_at": "2026-09-26T19:38:06.429199Z",
+  "duration_s": 94.17,
+  "error": null,
+  "summary": {
+    "zones": 195,
+    "mean_font_scale": 0.898,
+    "overflow": 7,
+    "checks_ok": false
+  }
+}
