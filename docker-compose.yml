@@ -5,6 +5,7 @@ services:
   api:
     build: .
     image: docagent:latest
+    pull_policy: build  # built locally, never pulled from a registry
     env_file:
       - path: .env
         required: false
@@ -18,6 +19,7 @@ services:
 
   front:
     image: docagent:latest
+    pull_policy: never  # same image as the api service, built by it
     depends_on:
       api:
         condition: service_healthy
