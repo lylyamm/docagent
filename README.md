@@ -30,7 +30,7 @@ IPCC AR6 WGI Summary for Policymakers, English → French, 8 pages, `open-mistra
 | Automatic checks | all passed |
 | LLM requests | 13 (1 retry) |
 | Blocks handled without the model (codes, glossary) | 132 |
-| Time | ~4 min (rate-limited free tier) |
+| Time | 2 to 4 min (rate-limited free tier) |
 
 Translation quality (COMET, chrF against the official IPCC French version) will be measured in phase 6.
 
@@ -49,6 +49,8 @@ docker compose up --build
 ```
 
 Front end: http://localhost:8501 · API docs: http://localhost:8000/docs
+
+![Streamlit front end: language detected, IPCC report translated with Mistral in Docker, original and translation side by side](docs/images/front.png)
 
 On Windows PowerShell, the first command is `$env:TRANSLATOR="fake"; docker compose up --build`.
 
