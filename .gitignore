@@ -24,3 +24,6 @@ data/output/*
 # OS / éditeur
 .DS_Store
 Thumbs.db
+
+# API jobs (uploaded and translated PDFs)
+.jobs/
