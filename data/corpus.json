@@ -1,0 +1,47 @@
+[
+  {
+    "id": "ipcc-spm-en",
+    "file": "IPCC_AR6_WGI_SPM_English.pdf",
+    "title": "IPCC AR6 WGI, Summary for Policymakers",
+    "org": "IPCC",
+    "year": 2021,
+    "lang": "en",
+    "url": "https://www.ipcc.ch/report/ar6/wg1/chapter/summary-for-policymakers/"
+  },
+  {
+    "id": "giec-rid-fr",
+    "file": "IPCC_AR6_WG1_SPM_French.pdf",
+    "title": "GIEC AR6 GTI, Résumé à l'intention des décideurs",
+    "org": "GIEC",
+    "year": 2021,
+    "lang": "fr",
+    "url": "https://www.ipcc.ch/report/ar6/wg1/downloads/report/IPCC_AR6_WG1_SPM_French.pdf"
+  },
+  {
+    "id": "iea-weo-2025",
+    "file": "WorldEnergyOutlook2025_English.pdf",
+    "title": "IEA World Energy Outlook 2025",
+    "org": "IEA",
+    "year": 2025,
+    "lang": "en",
+    "url": "https://iea.blob.core.windows.net/assets/0a7a40a4-5dcb-4d6e-a7ad-76a1c90ec8eb/WorldEnergyOutlook2025.pdf"
+  },
+  {
+    "id": "aie-weo-2025-resume",
+    "file": "WEO2025_Executivesummary_French.pdf",
+    "title": "AIE World Energy Outlook 2025, Résumé",
+    "org": "AIE",
+    "year": 2025,
+    "lang": "fr",
+    "url": "https://iea.blob.core.windows.net/assets/3fd1e7be-22e6-4466-947a-399d7d8fee29/WEO2025_Executivesummary_French.pdf"
+  },
+  {
+    "id": "hcc-ra-2025",
+    "file": "HCC_RA_2025-18.07_web.pdf",
+    "title": "Haut Conseil pour le climat, Rapport annuel 2025",
+    "org": "HCC",
+    "year": 2025,
+    "lang": "fr",
+    "url": "https://www.hautconseilclimat.fr/wp-content/uploads/2025/07/HCC_RA_2025-18.07_web.pdf"
+  }
+]

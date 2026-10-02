@@ -27,3 +27,6 @@ Thumbs.db
 
 # API jobs (uploaded and translated PDFs)
 .jobs/
+
+# Search index (passages and vectors, rebuilt by scripts/rag_index.py)
+data/index/

@@ -4,6 +4,7 @@
     POST /v1/translate              upload a PDF -> 202 {"job_id": ...} (source "auto" by default)
     GET  /v1/jobs/{job_id}          status and progress
     GET  /v1/jobs/{job_id}/download translated PDF (when done)
+    POST /v1/ask                    question -> answer from the indexed reports, with sources
     GET  /health                    liveness + configured LLM
 
 Run locally:  uv run uvicorn docagent.api.app:serve --factory --reload
@@ -11,6 +12,7 @@ Interactive docs: http://localhost:8000/docs
 """
 
 import logging
+import threading
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -19,12 +21,14 @@ from typing import Annotated
 import pymupdf
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from ..chat import ChatError
 from ..config import Settings, get_settings
 from ..pdf import rebuild_document
 from ..pdf.language import SUPPORTED, DetectedLanguage, detect_language
 from ..pdf.verify import verify_rebuild
+from ..rag.answer import Answer, Answerer, build_answerer
 from ..translate import Translator, build_translator
 from .jobs import Job, JobStatus, JobStore, JobSummary
 from .logging_config import configure_logging
@@ -42,6 +46,11 @@ class JobCreated(BaseModel):
     detected: DetectedLanguage | None = None  # set when source_lang was "auto"
 
 
+class AskRequest(BaseModel):
+    question: str = Field(min_length=3, max_length=500)
+    top_k: int | None = Field(default=None, ge=1, le=10, description="passages given to the LLM")
+
+
 class Health(BaseModel):
     status: str
     translator: str
@@ -51,17 +60,32 @@ class Health(BaseModel):
 def create_app(
     settings: Settings | None = None,
     translator_factory: Callable[[], Translator] | None = None,
+    answerer_factory: Callable[[], Answerer] | None = None,
 ) -> FastAPI:
-    """Build the app. Tests inject settings and a fake translator factory."""
+    """Build the app. Tests inject settings, a fake translator and a fake answerer."""
     settings = settings or get_settings()
     store = JobStore(settings.jobs_dir)
     make_translator = translator_factory or (
         lambda: build_translator(settings, fake=settings.translator == "fake")
     )
+    make_answerer = answerer_factory or (lambda: build_answerer(settings))
+    # The search index (passages, embedding model, vectors) is loaded on the first
+    # question, not at start-up: translation works without it. One instance is
+    # shared; the lock stops two first questions from loading it twice.
+    answerer: list[Answerer] = []
+    answerer_lock = threading.Lock()
+
+    def get_answerer() -> Answerer:
+        with answerer_lock:
+            if not answerer:
+                answerer.append(make_answerer())
+            return answerer[0]
+
     app = FastAPI(
         title="DocAgent",
-        version="0.1.0",
-        description="Layout-preserving PDF translation (climate & energy reports).",
+        version="0.2.0",
+        description="Layout-preserving PDF translation and question answering "
+        "over climate & energy reports.",
     )
 
     @app.get("/health")
@@ -171,6 +195,28 @@ def create_app(
             media_type="application/pdf",
             filename=f"{stem}_{job.target_lang}.pdf",
         )
+
+    @app.post("/v1/ask")
+    def ask(request: AskRequest) -> Answer:
+        try:
+            qa = get_answerer()
+        except FileNotFoundError as exc:
+            raise HTTPException(503, f"search index not built: {exc}") from exc
+        start = time.perf_counter()
+        try:
+            answer = qa.ask(request.question, request.top_k)
+        except ChatError as exc:
+            logger.warning("ask failed: %s", exc)
+            raise HTTPException(502, "the language model did not give a valid answer") from exc
+        logger.info(
+            "question answered",
+            extra={
+                "answerable": answer.answerable,
+                "sources": len(answer.sources),
+                "duration_s": round(time.perf_counter() - start, 2),
+            },
+        )
+        return answer
 
     return app
 

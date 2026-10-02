@@ -68,6 +68,20 @@ class Settings(BaseSettings):
     # "llm" for real translations, "fake" to demo the layout without any API key.
     translator: Literal["llm", "fake"] = "llm"
 
+    # Document search (RAG)
+    rag_index_dir: Path = Path("data/index")
+    # Qdrant: None = embedded on disk in <rag_index_dir>/qdrant (no server);
+    # "http://qdrant:6333" = the docker-compose service; ":memory:" = tests.
+    qdrant_url: str | None = None
+    embedder: Literal["mistral", "e5", "qwen3", "hash"] = "mistral"
+    mistral_embed_model: str = "mistral-embed"
+    e5_model: str = "intfloat/multilingual-e5-base"
+    qwen3_model: str = "Qwen/Qwen3-Embedding-0.6B"
+    local_max_tokens: int = 512  # longer passages are truncated by local models
+    rag_chunk_chars: int = 1000
+    rag_chunk_overlap: int = 150
+    rag_top_k: int = 5  # passages given to the LLM to answer a question
+
     # API server
     max_upload_mb: int = 20
     max_pages: int = 50
@@ -107,6 +121,14 @@ class Settings(BaseSettings):
         if key is None and self.preset.needs_key:
             name = f"{self.llm_provider.upper()}_API_KEY or LLM_API_KEY"
             raise RuntimeError(f"{name} is not set (put it in .env, see .env.example)")
+        return key
+
+    @property
+    def mistral_key(self) -> SecretStr:
+        """Mistral key for the embeddings, whatever LLM_PROVIDER is."""
+        key = self.mistral_api_key or (self.llm_api_key if self.llm_provider == "mistral" else None)
+        if key is None:
+            raise RuntimeError("MISTRAL_API_KEY is not set (put it in .env, see .env.example)")
         return key
 
 
