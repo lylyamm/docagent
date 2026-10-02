@@ -17,7 +17,7 @@ from docagent.rag import (
     VectorStore,
     open_client,
 )
-from docagent.rag.answer import NOT_FOUND, build_messages
+from docagent.rag.answer import NOT_FOUND, build_messages, quote_in_passage
 
 TEXTS = [
     "Le secteur des transports reste le premier secteur émetteur (34 % des émissions en 2024).",
@@ -72,39 +72,85 @@ def test_prompt_numbers_the_excerpts_with_title_and_page():
     assert "ONLY the numbered excerpts" in messages[0]["content"]
 
 
-def test_answer_keeps_valid_citations_and_maps_them_to_pages():
+TRANSPORT = (
+    "Le secteur des transports reste le premier secteur émetteur (34 % des émissions en 2024)"
+)
+
+
+def test_quotes_are_checked_against_their_excerpt():
+    text = TEXTS[0]
+    assert quote_in_passage(TRANSPORT, text)
+    assert quote_in_passage("Le secteur des transports reste le premier secteur émeteur", text)
+    assert not quote_in_passage("Le secteur des transports représente 40 % des émissions", text)
+    assert not quote_in_passage("Le secteur du bâtiment est le premier secteur émetteur", text)
+    assert not quote_in_passage("transports", text)  # too short to prove anything
+    # A swapped word is caught even when the excerpt contains it elsewhere: order matters.
+    both = "Le secteur des transports reste le premier secteur émetteur, devant le bâtiment."
+    assert not quote_in_passage("Le secteur du bâtiment reste le premier secteur émetteur", both)
+    assert quote_in_passage("Le secteur des transports reste le premier secteur émeteur", both)
+
+
+def test_answer_keeps_only_verified_evidence():
     client, sent = chat(
         {
             "answerable": True,
-            "answer": "Les transports, avec 34 % des émissions en 2024 [1][7].",
-            "citations": [1, 7],
+            "answer": "Les transports, avec 34 % des émissions en 2024 [1][2][7].",
+            "evidence": [
+                {"n": 1, "quote": TRANSPORT},
+                {"n": 2, "quote": "Transport is the largest sector in France"},  # not there
+                {"n": 7, "quote": TRANSPORT},  # no excerpt 7
+            ],
         }
     )
     answer = Answerer(searcher(), client, top_k=3).ask("Quel est le premier secteur émetteur ?")
     assert answer.answerable
-    assert answer.answer == "Les transports, avec 34 % des émissions en 2024 [1]."  # [7] removed
-    assert [(s.n, s.doc_id, s.page) for s in answer.sources] == [(1, "d1", 11)]
+    assert answer.answer == "Les transports, avec 34 % des émissions en 2024 [1]."
+    assert [(s.n, s.doc_id, s.page, s.quotes) for s in answer.sources] == [
+        (1, "d1", 11, [TRANSPORT])
+    ]
+    assert len(answer.rejected_quotes) == 2  # kept to understand what the model tried
     assert len(answer.retrieved) == 3
     assert sent[0]["model"] == "open-mistral-nemo"
     assert sent[0]["response_format"] == {"type": "json_object"}
 
 
+def test_a_figure_found_in_no_quote_is_not_shown():
+    quote = "Global mean sea level increased by 0.20 m between 1901 and 2018."
+    reply = {
+        "answerable": True,
+        "answer": "It rose by 20 cm, about 1.7 mm per year since 1901 [1].",  # converted, computed
+        "evidence": [{"n": 1, "quote": quote}],
+    }
+    client, _ = chat(reply)
+    answer = Answerer(searcher(), client).ask("How much did sea level rise since 1901?")
+    assert not answer.answerable and answer.model_answerable
+    assert answer.unsupported_numbers == ["20", "1.7"]
+
+
 def test_refusal_gives_the_not_found_message_in_the_question_language():
-    client, _ = chat({"answerable": False, "answer": "Not in the documents.", "citations": []})
+    client, _ = chat({"answerable": False, "answer": "Not in the documents.", "evidence": []})
     answer = Answerer(searcher(), client).ask("Qui a gagné la Coupe du monde 2018 ?")
     assert not answer.answerable and answer.sources == []
     assert answer.answer == NOT_FOUND["fr"]
 
 
-def test_an_answer_citing_nothing_is_not_shown():
-    client, _ = chat({"answerable": True, "answer": "Sea level rose by 0.20 m.", "citations": []})
-    answer = Answerer(searcher(), client).ask("How much did sea level rise since 1901?")
-    assert not answer.answerable
-    assert answer.answer == NOT_FOUND["en"]
+def test_an_answer_without_verified_evidence_is_not_shown():
+    invented = {"n": 1, "quote": "Global mean sea level increased by 0.35 m since 1901"}
+    for evidence in ([], [invented]):
+        reply = {"answerable": True, "answer": "It rose by 0.35 m [1].", "evidence": evidence}
+        client, _ = chat(reply)
+        answer = Answerer(searcher(), client).ask("How much did sea level rise since 1901?")
+        assert not answer.answerable
+        assert answer.answer == NOT_FOUND["en"]
 
 
 def test_invalid_json_and_rate_limits_are_retried():
-    good = {"answerable": True, "answer": "USD 580 billion in 2025 [1].", "citations": [1]}
+    quote = "Investment in data centres is expected to reach USD 580 billion in 2025."
+    good = {
+        "answerable": True,
+        "answer": "USD 580 billion in 2025 [1].",
+        "evidence": [{"n": 1, "quote": quote}],
+    }
     client, sent = chat(httpx.Response(429), "not json", good)
     answer = Answerer(searcher(), client).ask("Investment in data centres in 2025?")
     assert answer.answerable and len(sent) == 3
@@ -125,7 +171,10 @@ def api(tmp_path, factory) -> TestClient:
 
 
 def test_ask_endpoint_returns_the_answer_and_its_sources(tmp_path):
-    client, _ = chat({"answerable": True, "answer": "0.20 m [1].", "citations": [1]})
+    quote = "Global mean sea level increased by 0.20 m between 1901 and 2018."
+    client, _ = chat(
+        {"answerable": True, "answer": "0.20 m [1].", "evidence": [{"n": 1, "quote": quote}]}
+    )
     built = []
 
     def factory():

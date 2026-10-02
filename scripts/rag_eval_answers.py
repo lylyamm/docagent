@@ -21,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 
 from docagent.rag import build_answerer
+from docagent.rag.answer import PROMPT_VERSION
 
 
 def load(path: Path) -> list[dict]:
@@ -64,6 +65,10 @@ def main() -> None:
                 "question": q["question"],
                 "answer": answer.answer,
                 "sources": [f"{s.doc_id} p.{s.page}" for s in answer.sources],
+                "quotes": [q for s in answer.sources for q in s.quotes],
+                "model_answerable": answer.model_answerable,
+                "rejected_quotes": answer.rejected_quotes,
+                "unsupported_numbers": answer.unsupported_numbers,
             }
             rows.append(row)
             out.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -78,9 +83,20 @@ def main() -> None:
     without = [r for r in rows if not r["has_answer"]]
     refused = [{**r, "refused": not r["answered"]} for r in without]
     found = [r for r in with_answer if r["found"]]
+
+    def why(r: dict) -> str:
+        if r["model_answerable"] is False:
+            return "the model said no"
+        if r["unsupported_numbers"]:
+            return f"figures not in a quote ({', '.join(r['unsupported_numbers'])})"
+        return "no quote verified"
+
+    # Refused although the right page was given: too cautious, and why.
+    cautious = [f"{r['id']}: {why(r)}" for r in found if not r["answered"]]
+
     chat = answerer.chat
     lines = [
-        f"\n## {stamp:%Y-%m-%d %H:%M} · answers · {chat.model} · embedder "
+        f"\n## {stamp:%Y-%m-%d %H:%M} · answers {PROMPT_VERSION} · {chat.model} · embedder "
         f"{answerer.searcher.embedder.name} · top {answerer.top_k}\n",
         "| questions | right page given to the model | answered | cited the right page | "
         "cited it, when it was given |",
@@ -93,6 +109,7 @@ def main() -> None:
         f" (answered anyway: {', '.join(r['id'] for r in without if r['answered']) or 'none'}).",
         f"Missed: {', '.join(r['id'] for r in with_answer if not r['cited_right_page']) or 'none'}."
         f" Answers to read: {out_path.as_posix()}",
+        f"Refused although the right page was given: {'; '.join(cautious) or 'none'}.",
         f"LLM: {chat.requests} requests, {chat.input_tokens} tokens in, {chat.output_tokens} out.",
     ]
     report = "\n".join(lines)

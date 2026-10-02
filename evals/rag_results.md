@@ -171,3 +171,23 @@ LLM: 30 requests, 42854 tokens in, 2847 out.
 Without an answer in the reports: refused 5/6 (answered anyway: u06).
 Missed: q01, q17. Answers to read: evals/answers/2026-10-02_2348.jsonl
 LLM: 30 requests, 44339 tokens in, 3058 out.
+
+## 2026-10-02 23:56 · answers ask-v2 · open-mistral-nemo · embedder e5 · top 5
+
+| questions | right page given to the model | answered | cited the right page | cited it, when it was given |
+|---|---|---|---|---|
+| with an answer (24) | 23/24 | 21/24 | 19/24 | 19/23 |
+
+Without an answer in the reports: refused 5/6 (answered anyway: u06).
+Missed: q01, q04, q08, q17, q22. Answers to read: evals/answers/2026-10-02_2356.jsonl
+LLM: 30 requests, 46709 tokens in, 5903 out.
+
+## 2026-10-03 00:01 · answers ask-v2 · open-mistral-nemo · embedder e5 · top 5
+
+| questions | right page given to the model | answered | cited the right page | cited it, when it was given |
+|---|---|---|---|---|
+| with an answer (24) | 23/24 | 21/24 | 19/24 | 19/23 |
+
+Without an answer in the reports: refused 5/6 (answered anyway: u06).
+Missed: q01, q04, q08, q17, q22. Answers to read: evals/answers/2026-10-03_0001.jsonl
+LLM: 30 requests, 46709 tokens in, 5519 out.

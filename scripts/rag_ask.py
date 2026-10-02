@@ -33,7 +33,8 @@ def main() -> None:
         print(f"[{source.n}] {source.title}, p. {source.page}")
         if source.section:
             print(f"    § {source.section}")
-        print("    " + source.excerpt[:250].replace("\n", " ") + "…")
+        for quote in source.quotes:  # the sentences checked against the excerpt
+            print(f"    « {quote} »")
     if args.retrieved:
         print("\nGiven to the model: " + ", ".join(answer.retrieved))
     chat = answerer.chat
