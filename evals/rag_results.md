@@ -191,3 +191,36 @@ LLM: 30 requests, 46709 tokens in, 5903 out.
 Without an answer in the reports: refused 5/6 (answered anyway: u06).
 Missed: q01, q04, q08, q17, q22. Answers to read: evals/answers/2026-10-03_0001.jsonl
 LLM: 30 requests, 46709 tokens in, 5519 out.
+
+## 2026-10-03 00:04 · answers ask-v3 · open-mistral-nemo · embedder e5 · top 5
+
+| questions | right page given to the model | answered | cited the right page | cited it, when it was given |
+|---|---|---|---|---|
+| with an answer (24) | 23/24 | 17/24 | 16/24 | 16/23 |
+
+Without an answer in the reports: refused 6/6 (answered anyway: none).
+Missed: q01, q04, q08, q13, q17, q18, q20, q22. Answers to read: evals/answers/2026-10-03_0004.jsonl
+Refused although the right page was given: q04: figures not in a quote (4, 2, 1866, 332); q08: figures not in a quote (2050, 2100); q13: figures not in a quote (2030, 2040); q18: figures not in a quote (7.2, 2022); q20: figures not in a quote (42.2, 240); q22: figures not in a quote (27).
+LLM: 30 requests, 47339 tokens in, 5717 out.
+
+## 2026-10-03 00:12 · answers ask-v3.1 · open-mistral-nemo · embedder e5 · top 5
+
+| questions | right page given to the model | answered | cited the right page | cited it, when it was given |
+|---|---|---|---|---|
+| with an answer (24) | 23/24 | 23/24 | 22/24 | 22/23 |
+
+Without an answer in the reports: refused 6/6 (answered anyway: none).
+Missed: q01, q17. Answers to read: evals/answers/2026-10-03_0012.jsonl
+Refused although the right page was given: none.
+LLM: 30 requests, 47339 tokens in, 5482 out.
+
+## 2026-10-03 00:17 · answers ask-v3.2 · open-mistral-nemo · embedder e5 · top 5
+
+| questions | right page given to the model | answered | cited the right page | cited it, when it was given |
+|---|---|---|---|---|
+| with an answer (24) | 23/24 | 21/24 | 21/24 | 21/23 |
+
+Without an answer in the reports: refused 6/6 (answered anyway: none).
+Missed: q01, q13, q17. Answers to read: evals/answers/2026-10-03_0017.jsonl
+Refused although the right page was given: q01: figures not in a quote (1.0); q13: figures not in a quote (2030, 2040).
+LLM: 30 requests, 47339 tokens in, 5469 out.

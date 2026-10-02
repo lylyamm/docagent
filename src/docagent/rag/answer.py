@@ -19,8 +19,8 @@ that this quote really is in excerpt n:
   swapped word ("bâtiment" for "transports") is rejected, even when the
   excerpt contains "bâtiment" elsewhere.
 A quote that fails is dropped with its [n] markers. Then every number of the
-answer must appear in a verified quote (or in the question): a figure the
-model computed, converted or took from nowhere is not shown. An answer that
+answer must appear in an excerpt with a verified quote (or in the question): a
+figure the model computed, converted or took from nowhere is not shown. An answer that
 fails, or has no verified quote, is replaced by the "not found" message.
 
 This catches invented quotes and figures, not every wrong answer: a true
@@ -42,7 +42,7 @@ from .embeddings import build_embedder
 from .index import load_passages, open_store
 from .search import HybridSearcher
 
-PROMPT_VERSION = "ask-v3"
+PROMPT_VERSION = "ask-v3.2"  # v3 prompt; checks fixed after reading the v3 errors
 
 SYSTEM_PROMPT = """You answer questions about climate and energy reports (IPCC, IEA, \
 French High Council on Climate) using ONLY the numbered excerpts you are given.
@@ -72,7 +72,12 @@ NOT_FOUND = {
 }
 
 _CITATION_RE = re.compile(r"\[(\d{1,2})\]")
-_NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)*")
+# A number standing alone: not the digits of CO2, CH4, SSP1 or a footnote call glued
+# to a word ("emissions23").
+_NUMBER_RE = re.compile(r"(?<![^\W\d])(?<![\d.])\d+(?:[.,]\d+)*")
+_GLUED_DIGITS_RE = re.compile(r"(?<=[^\W\d])\d+")
+_ELLIPSIS_RE = re.compile(r"\s*(?:\[\.\.\.\]|\[…\]|\.\.\.|…)\s*")
+MAX_QUOTE_WORDS = 60  # a sentence, not a page of figure labels
 
 
 class Evidence(BaseModel):
@@ -177,23 +182,35 @@ def _in_order(quote: list[str], passage: list[str], max_skipped: int) -> bool:
     return False
 
 
+def _words(text: str) -> list[str]:
+    """Words compared between a quote and an excerpt, numbers aside (they are
+    checked on their own): accents, plurals, stop words, double letters and
+    digits glued to words ("emissions23", "CO2") left out."""
+    tokens = tokenize(_GLUED_DIGITS_RE.sub("", text))
+    return [_undouble(w) for w in tokens if not w[0].isdigit()]
+
+
 def quote_in_passage(quote: str, passage: str) -> bool:
     """Is the quote really taken from the passage? (numbers exact, words nearly)
 
-    A number only has to appear inside the passage text, not as a separate
-    token: the extraction glues footnote calls to numbers ("1850-19009" for
-    "1850-1900" + note 9), and the model rightly drops them when quoting.
+    The model may shorten a quote with "..." : each part is checked on its own.
+    A number only has to appear where a number starts in the passage: the
+    extraction glues footnote calls to numbers ("1850-19009" for "1850-1900" +
+    note 9), and the model rightly drops them when quoting.
     """
     quote, passage = _normalise_numbers(quote), _normalise_numbers(passage)
-    words = [_undouble(w) for w in tokenize(quote)]  # accents, plurals, stop words out
-    if len(words) < 3:  # too short to prove anything
+    raw = [part for part in _ELLIPSIS_RE.split(quote) if re.search(r"\w", part)]
+    parts = [_words(part) for part in raw] or [[]]
+    if sum(map(len, parts)) > MAX_QUOTE_WORDS or min(map(len, parts)) < 3:
+        # A chunk of text rather than a sentence, or a part too short to prove
+        # anything ("... 1.0": a lone figure picked from a chart's labels).
         return False
     for number in _NUMBER_RE.findall(quote):
         # Must start where a number starts: "20" is not found inside "2020".
         if not re.search(rf"(?<![\d.]){re.escape(number)}", passage):
             return False
-    text = [_undouble(w) for w in tokenize(passage)]
-    return _in_order(words, text, max_skipped=max(3, len(words) // 3))
+    text = _words(passage)
+    return all(_in_order(words, text, max_skipped=max(3, len(words) // 3)) for words in parts)
 
 
 def verified_evidence(
@@ -210,12 +227,13 @@ def verified_evidence(
     return dict(sorted(verified.items())), rejected
 
 
-def unsupported_numbers(answer: str, quotes: list[str], question: str) -> list[str]:
-    """Numbers of the answer found in no verified quote and not in the question.
+def unsupported_numbers(answer: str, excerpts: list[str], question: str) -> list[str]:
+    """Numbers of the answer found neither in the excerpts it relies on (those with
+    a verified quote) nor in the question: computed, converted or invented figures.
 
     Whole numbers only: "20" is not supported by "2018", nor "1.2" by "1.20".
     """
-    support = _normalise_numbers(" ".join([*quotes, question]))
+    support = _normalise_numbers(" ".join([*excerpts, question]))
     numbers = _NUMBER_RE.findall(_normalise_numbers(_CITATION_RE.sub("", answer)))
     return [
         n
@@ -256,8 +274,8 @@ class Answerer:
         if not reply.answerable:
             return Answer(answer=not_found, answerable=False, sources=[], **base)
         evidence, base["rejected_quotes"] = verified_evidence(reply, passages)
-        quotes = [q for qs in evidence.values() for q in qs]
-        base["unsupported_numbers"] = unsupported_numbers(reply.answer, quotes, question)
+        cited = [passages[n - 1].text for n in evidence]
+        base["unsupported_numbers"] = unsupported_numbers(reply.answer, cited, question)
         if not evidence or base["unsupported_numbers"]:
             # Nothing the user could verify, or a figure that comes from nowhere.
             return Answer(answer=not_found, answerable=False, sources=[], **base)

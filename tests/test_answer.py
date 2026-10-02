@@ -90,6 +90,22 @@ def test_quotes_are_checked_against_their_excerpt():
     assert quote_in_passage("Le secteur des transports reste le premier secteur émeteur", both)
 
 
+def test_quote_check_handles_what_the_pdf_and_the_model_do():
+    text = (
+        "Since 2011, concentrations have continued to increase, reaching annual averages "
+        "of 410 ppm for carbon dioxide (CO2), 1866 ppb for methane (CH4), and 332 ppb for "
+        "nitrous oxide (N2O) in 2019.6 Land and ocean emissions23 have taken up a share."
+    )
+    # "..." to skip a part, formulas (CH4), footnote calls glued to a number or a word.
+    shortened = "concentrations have continued to increase ... 1866 ppb for methane (CH4)"
+    assert quote_in_passage(shortened, text)
+    assert quote_in_passage("332 ppb for nitrous oxide (N2O) in 2019", text)
+    assert quote_in_passage("Land and ocean emissions have taken up a share", text)
+    assert not quote_in_passage("1966 ppb for methane (CH4)", text)  # a wrong figure
+    assert not quote_in_passage(text * 3, text * 3)  # a whole page is not a sentence
+    assert not quote_in_passage("concentrations have continued to increase ... 410", text)
+
+
 def test_answer_keeps_only_verified_evidence():
     client, sent = chat(
         {
@@ -112,6 +128,18 @@ def test_answer_keeps_only_verified_evidence():
     assert len(answer.retrieved) == 3
     assert sent[0]["model"] == "open-mistral-nemo"
     assert sent[0]["response_format"] == {"type": "json_object"}
+
+
+def test_a_figure_of_the_cited_excerpt_is_accepted():
+    # The quote proves the passage; the answer may add a figure of the same excerpt.
+    reply = {
+        "answerable": True,
+        "answer": "USD 580 billion in 2025 [1].",
+        "evidence": [{"n": 1, "quote": "Investment in data centres is expected to reach"}],
+    }
+    client, _ = chat(reply)
+    answer = Answerer(searcher(), client).ask("Investment in data centres?")
+    assert answer.answerable and answer.unsupported_numbers == []
 
 
 def test_a_figure_found_in_no_quote_is_not_shown():
