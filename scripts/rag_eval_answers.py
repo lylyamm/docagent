@@ -88,7 +88,7 @@ def main() -> None:
         if r["model_answerable"] is False:
             return "the model said no"
         if r["unsupported_numbers"]:
-            return f"figures not in a quote ({', '.join(r['unsupported_numbers'])})"
+            return f"figures not in the cited excerpts ({', '.join(r['unsupported_numbers'])})"
         return "no quote verified"
 
     # Refused although the right page was given: too cautious, and why.
