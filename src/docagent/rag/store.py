@@ -41,7 +41,15 @@ def open_client(location: str | Path) -> QdrantClient:
     folder = str(Path(location).resolve())
     if folder not in _embedded:
         Path(folder).mkdir(parents=True, exist_ok=True)
-        _embedded[folder] = QdrantClient(path=folder)
+        try:
+            _embedded[folder] = QdrantClient(path=folder)
+        except RuntimeError as exc:
+            if "already accessed" not in str(exc):
+                raise
+            raise RuntimeError(
+                f"the vector store {folder} is open in another program (an indexing still "
+                "running?). Wait for it to finish, or stop it, then run this again."
+            ) from None
     return _embedded[folder]
 
 

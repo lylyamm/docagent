@@ -104,6 +104,9 @@ def test_quote_check_handles_what_the_pdf_and_the_model_do():
     assert not quote_in_passage("1966 ppb for methane (CH4)", text)  # a wrong figure
     assert not quote_in_passage(text * 3, text * 3)  # a whole page is not a sentence
     assert not quote_in_passage("concentrations have continued to increase ... 410", text)
+    # Footnote calls glued as letters ("éqCO2I") or as a list of numbers ("éqCO2146,147").
+    hcc = "Tokyo en 2021 (1,962 Mt éqCO2I) et un budget carbone de 1,5 Mt éqCO2146,147. Le HCC"
+    assert quote_in_passage("Tokyo en 2021 (1,962 Mt éqCO2) et un budget carbone de 1,5 Mt", hcc)
 
 
 def test_answer_keeps_only_verified_evidence():
@@ -226,3 +229,43 @@ def test_ask_endpoint_reports_a_missing_index_and_a_failing_llm(tmp_path):
     client, _ = chat("x", "y", "z")
     failing = api(tmp_path, lambda: Answerer(searcher(), client))
     assert failing.post("/v1/ask", json={"question": "Sea level?"}).status_code == 502
+
+
+def test_warm_up_loads_the_index_at_start_and_answers_report_timings(tmp_path):
+    import threading
+    import time
+
+    quote = "Global mean sea level increased by 0.20 m between 1901 and 2018."
+    client, sent = chat(
+        {"answerable": True, "answer": "0.20 m [1].", "evidence": [{"n": 1, "quote": quote}]}
+    )
+    built = []
+
+    def factory():
+        built.append(1)
+        return Answerer(searcher(), client)
+
+    settings = Settings(_env_file=None, jobs_dir=tmp_path / "jobs", translator="fake")
+    app = create_app(settings, answerer_factory=factory, warm_up=True)
+    with TestClient(app) as http:  # the context manager runs start-up
+        for thread in threading.enumerate():
+            if thread.name == "rag-warm-up":
+                thread.join(timeout=5)
+        assert built == [1] and sent == []  # loaded before any question, no LLM call
+        start = time.perf_counter()
+        body = http.post("/v1/ask", json={"question": "How much did sea level rise?"}).json()
+        assert time.perf_counter() - start < 5
+    assert built == [1]
+    assert set(body["timings"]) == {"search_s", "llm_s", "llm_requests"}
+    assert body["timings"]["llm_requests"] == 1
+
+
+def test_a_refusal_without_evidence_field_is_accepted_at_once():
+    for reply in (
+        '{"answerable": false, "answer": "No.", "evidence": null}',
+        '{"answerable": false, "answer": null}',
+        '{"answerable": false}',
+    ):
+        client, sent = chat(reply)
+        answer = Answerer(searcher(), client).ask("Who won the 2018 football World Cup?")
+        assert not answer.answerable and len(sent) == 1  # no retry, no wait

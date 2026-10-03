@@ -15,6 +15,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Annotated
 
@@ -61,8 +62,13 @@ def create_app(
     settings: Settings | None = None,
     translator_factory: Callable[[], Translator] | None = None,
     answerer_factory: Callable[[], Answerer] | None = None,
+    warm_up: bool = False,
 ) -> FastAPI:
-    """Build the app. Tests inject settings, a fake translator and a fake answerer."""
+    """Build the app. Tests inject settings, a fake translator and a fake answerer.
+
+    ``warm_up``: load the search index and the embedding model in the background
+    at start-up, so the first question does not wait for them (``serve`` does).
+    """
     settings = settings or get_settings()
     store = JobStore(settings.jobs_dir)
     make_translator = translator_factory or (
@@ -81,7 +87,24 @@ def create_app(
                 answerer.append(make_answerer())
             return answerer[0]
 
+    def warm() -> None:
+        start = time.perf_counter()
+        try:
+            get_answerer().searcher.search("warm-up", 1, "hybrid")  # loads the model too
+        except Exception as exc:  # noqa: BLE001 - no index yet: questions will say so
+            logger.warning("search index not loaded at start-up: %s", exc)
+            return
+        duration = round(time.perf_counter() - start, 2)
+        logger.info("search index ready", extra={"duration_s": duration})
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        if warm_up:
+            threading.Thread(target=warm, name="rag-warm-up", daemon=True).start()
+        yield
+
     app = FastAPI(
+        lifespan=lifespan,
         title="DocAgent",
         version="0.2.0",
         description="Layout-preserving PDF translation and question answering "
@@ -214,6 +237,7 @@ def create_app(
                 "answerable": answer.answerable,
                 "sources": len(answer.sources),
                 "duration_s": round(time.perf_counter() - start, 2),
+                **answer.timings,
             },
         )
         return answer
@@ -273,4 +297,4 @@ def _run_job(store: JobStore, job_id: str, make_translator: Callable[[], Transla
 def serve() -> FastAPI:
     """Entry point for uvicorn (``--factory``): JSON logs + settings from .env."""
     configure_logging()
-    return create_app()
+    return create_app(warm_up=True)

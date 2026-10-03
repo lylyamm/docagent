@@ -1,0 +1,4 @@
+{"id": "v01", "question": "Quelle est la population de Tokyo ?", "lang": "fr", "type": "off-topic"}
+{"id": "v02", "question": "What is the boiling point of water at the top of Mount Everest?", "lang": "en", "type": "off-topic"}
+{"id": "v03", "question": "Quel est le budget de l'organisation de la COP30 à Belém ?", "lang": "fr", "type": "near-topic"}
+{"id": "v04", "question": "How much does it cost to install a heat pump in a French house?", "lang": "en", "type": "near-topic"}

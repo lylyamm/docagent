@@ -224,3 +224,26 @@ Without an answer in the reports: refused 6/6 (answered anyway: none).
 Missed: q01, q13, q17. Answers to read: evals/answers/2026-10-03_0017.jsonl
 Refused although the right page was given: q01: figures not in a quote (1.0); q13: figures not in a quote (2030, 2040).
 LLM: 30 requests, 47339 tokens in, 5469 out.
+
+## 2026-10-03 12:39 · embedders e5 · 4970 passages · 15 questions (rag_test_questions.jsonl)
+
+| mode | hit@1 | hit@5 | MRR@10 | hit@5 exact | hit@5 paraphrase | hit@5 cross-lingual |
+|---|---|---|---|---|---|---|
+| bm25 | 60% | 73% | 0.65 | 100% | 100% | 0% |
+| dense e5 | 80% | 93% | 0.85 | 100% | 100% | 75% |
+| hybrid e5 | 73% | 87% | 0.81 | 100% | 100% | 50% |
+
+- missed in the top 5 by bm25: t04, t11, t12, t15
+- missed in the top 5 by dense e5: t11
+- missed in the top 5 by hybrid e5: t11, t12
+
+## 2026-10-03 12:40 · rag_test_questions.jsonl · answers ask-v3.2 · open-mistral-nemo · embedder e5 · top 5
+
+| questions | right page given to the model | answered | cited the right page | cited it, when it was given |
+|---|---|---|---|---|
+| with an answer (15) | 13/15 | 12/15 | 12/15 | 12/13 |
+
+Without an answer in the reports: refused 4/4 (answered anyway: none).
+Missed: t11, t12, t15. Answers to read: evals/answers/2026-10-03_1240.jsonl
+Refused although the right page was given: t15: figures not in the cited excerpts (2.085, 47, 1.830, 1.5).
+LLM: 19 requests, 29977 tokens in, 2471 out.

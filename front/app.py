@@ -168,7 +168,8 @@ def translation_tab(health: dict | None) -> None:
 
 
 def ask(question: str, top_k: int) -> dict:
-    """POST /v1/ask. The first question loads the search index: up to a minute."""
+    """POST /v1/ask. The API loads the search index at start-up (about a minute)."""
+    start = time.perf_counter()
     try:
         response = httpx.post(
             f"{API_URL}/v1/ask", json={"question": question, "top_k": top_k}, timeout=180
@@ -177,7 +178,7 @@ def ask(question: str, top_k: int) -> dict:
         return {"error": f"API unreachable: {exc}"}
     if response.status_code != 200:
         return {"error": f"{response.status_code}: {response.json().get('detail')}"}
-    return response.json()
+    return response.json() | {"elapsed_s": time.perf_counter() - start}
 
 
 def show_answer(result: dict) -> None:
@@ -202,9 +203,14 @@ def show_answer(result: dict) -> None:
             excerpt = source["excerpt"]
             short = excerpt if len(excerpt) <= 400 else excerpt[:400].rsplit(" ", 1)[0] + " …"
             st.caption(f"Excerpt given to the model: {short}")
+    t = result.get("timings", {})
+    timing = f"search {t.get('search_s', 0):.1f} s · model {t.get('llm_s', 0):.1f} s"
+    if t.get("llm_requests", 1) > 1:
+        timing += f" ({int(t['llm_requests'])} requests: rate limit or invalid answer)"
     st.caption(
         f"{len(result['retrieved'])} passages given to {result['model']} "
-        f"· prompt {result.get('prompt_version', '?')}"
+        f"· prompt {result.get('prompt_version', '?')} · {timing} "
+        f"· total {result.get('elapsed_s', 0):.1f} s"
     )
 
 

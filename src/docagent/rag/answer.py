@@ -30,8 +30,9 @@ unsupported_numbers) to understand each refusal.
 """
 
 import re
+import time
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ..chat import ChatClient
 from ..config import Settings, get_settings
@@ -42,7 +43,7 @@ from .embeddings import build_embedder
 from .index import load_passages, open_store
 from .search import HybridSearcher
 
-PROMPT_VERSION = "ask-v3.2"  # v3 prompt; checks fixed after reading the v3 errors
+PROMPT_VERSION = "ask-v3.3"  # v3 prompt; checks fixed after reading errors
 
 SYSTEM_PROMPT = """You answer questions about climate and energy reports (IPCC, IEA, \
 French High Council on Climate) using ONLY the numbered excerpts you are given.
@@ -75,7 +76,7 @@ _CITATION_RE = re.compile(r"\[(\d{1,2})\]")
 # A number standing alone: not the digits of CO2, CH4, SSP1 or a footnote call glued
 # to a word ("emissions23").
 _NUMBER_RE = re.compile(r"(?<![^\W\d])(?<![\d.])\d+(?:[.,]\d+)*")
-_GLUED_DIGITS_RE = re.compile(r"(?<=[^\W\d])\d+")
+_GLUED_DIGITS_RE = re.compile(r"(?<=[^\W\d])\d+(?:[.,]\d+)*")  # "éqCO2146,147"
 _ELLIPSIS_RE = re.compile(r"\s*(?:\[\.\.\.\]|\[…\]|\.\.\.|…)\s*")
 MAX_QUOTE_WORDS = 60  # a sentence, not a page of figure labels
 
@@ -86,11 +87,36 @@ class Evidence(BaseModel):
 
 
 class LLMAnswer(BaseModel):
-    """What the model must return (validated, retried when invalid)."""
+    """What the model must return (validated, retried when invalid).
+
+    Only "answerable" is required. A refusal often comes back with "evidence":
+    null, "answer": null or no evidence field at all: rejecting it would trigger
+    retries with growing waits (slow "not found" answers) for nothing, since a
+    refusal needs no evidence. Malformed evidence items are dropped, not fatal.
+    """
 
     answerable: bool
-    answer: str
+    answer: str = ""
     evidence: list[Evidence] = Field(default_factory=list)
+
+    @field_validator("answer", mode="before")
+    @classmethod
+    def _no_null_answer(cls, value: object) -> object:
+        return "" if value is None else value
+
+    @field_validator("evidence", mode="before")
+    @classmethod
+    def _usable_evidence(cls, value: object) -> list:
+        if not isinstance(value, list):
+            return []
+        return [
+            item
+            for item in value
+            if isinstance(item, dict)
+            and isinstance(item.get("n"), int)
+            and isinstance(item.get("quote"), str)
+            and item["quote"].strip()
+        ]
 
 
 class Source(BaseModel):
@@ -116,6 +142,8 @@ class Answer(BaseModel):
     model_answerable: bool | None = None
     rejected_quotes: list[str] = Field(default_factory=list)
     unsupported_numbers: list[str] = Field(default_factory=list)
+    # Where the time goes: search_s, llm_s (waits and retries included), llm_requests.
+    timings: dict[str, float] = Field(default_factory=dict)
 
 
 def question_language(question: str) -> str:
@@ -158,20 +186,26 @@ def _one_edit(a: str, b: str) -> bool:
     return any(long[:i] + long[i + 1 :] == short for i in range(len(long)))
 
 
-def _same_word(a: str, b: str) -> bool:
-    """Equal, or one letter apart for words of 5 letters or more (damaged spelling)."""
-    return a == b or (min(len(a), len(b)) >= 5 and _one_edit(a, b))
+def _same_word(quoted: str, found: str) -> bool:
+    """Equal; or one letter apart for words of 5 letters or more (damaged spelling);
+    or the excerpt's word is the quoted one plus a glued footnote call of one or
+    two letters ("éqCO2I" for "éqCO2" + note I)."""
+    if quoted == found:
+        return True
+    if min(len(quoted), len(found)) >= 5 and _one_edit(quoted, found):
+        return True
+    return len(quoted) >= 3 and found.startswith(quoted) and len(found) - len(quoted) <= 2
 
 
 def _in_order(quote: list[str], passage: list[str], max_skipped: int) -> bool:
     """Are the quote's words found in the passage, in order, skipping at most
     ``max_skipped`` passage words in between? (a subsequence match)"""
     for start, word in enumerate(passage):
-        if not _same_word(word, quote[0]):
+        if not _same_word(quote[0], word):
             continue
         position, skipped = start + 1, 0
         for wanted in quote[1:]:
-            while position < len(passage) and not _same_word(passage[position], wanted):
+            while position < len(passage) and not _same_word(wanted, passage[position]):
                 position += 1
                 skipped += 1
             if position >= len(passage) or skipped > max_skipped:
@@ -258,18 +292,24 @@ class Answerer:
         self.top_k = top_k
 
     def ask(self, question: str, top_k: int | None = None) -> Answer:
+        start = time.perf_counter()
         hits = self.searcher.search(question, top_k or self.top_k, "hybrid")
         passages = [h.passage for h in hits]
         not_found = NOT_FOUND[question_language(question)]
+        timings = {"search_s": round(time.perf_counter() - start, 3)}
         base = {
             "question": question,
             "retrieved": [p.id for p in passages],
             "model": self.chat.model,
+            "timings": timings,
         }
         if not passages:
             return Answer(answer=not_found, answerable=False, sources=[], **base)
 
+        requests, llm_start = self.chat.requests, time.perf_counter()
         reply = self.chat.complete_json(build_messages(question, passages), LLMAnswer)
+        timings["llm_s"] = round(time.perf_counter() - llm_start, 3)
+        timings["llm_requests"] = self.chat.requests - requests  # more than 1: retries
         base["model_answerable"] = reply.answerable
         if not reply.answerable:
             return Answer(answer=not_found, answerable=False, sources=[], **base)
@@ -311,5 +351,5 @@ def build_answerer(settings: Settings | None = None) -> Answerer:
     embedder = build_embedder(settings)
     searcher = HybridSearcher(load_passages(path), embedder, open_store(settings, embedder))
     # Temperature 0: the most likely wording, closest to the excerpts, and repeatable.
-    chat = ChatClient(settings, temperature=0.0)
+    chat = ChatClient(settings, temperature=0.0, max_retries=settings.ask_max_retries)
     return Answerer(searcher, chat, top_k=settings.rag_top_k)

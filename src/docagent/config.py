@@ -81,6 +81,7 @@ class Settings(BaseSettings):
     rag_chunk_chars: int = 1000
     rag_chunk_overlap: int = 150
     rag_top_k: int = 5  # passages given to the LLM to answer a question
+    ask_max_retries: int = 2  # a question is interactive: fail fast (translation: 8)
 
     # API server
     max_upload_mb: int = 20

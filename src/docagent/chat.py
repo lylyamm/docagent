@@ -43,6 +43,7 @@ class ChatClient:
         sleep=time.sleep,
         clock=time.monotonic,
         temperature: float = 0.1,
+        max_retries: int | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.base_url = self.settings.resolved_base_url
@@ -52,6 +53,8 @@ class ChatClient:
         self.sleep = sleep
         self.clock = clock
         self.temperature = temperature
+        # Someone waiting for an answer cannot wait for 8 retries with growing pauses.
+        self.max_retries = self.settings.llm_max_retries if max_retries is None else max_retries
         self._last_request = float("-inf")
         self.requests = 0
         self.input_tokens = 0
@@ -59,7 +62,7 @@ class ChatClient:
 
     def complete_json(self, messages: list[dict], schema: type[T]) -> T:
         """Send the messages; return the answer parsed into ``schema``."""
-        attempts = self.settings.llm_max_retries + 1
+        attempts = self.max_retries + 1
         for attempt in range(attempts):
             try:
                 content = self._call(messages)

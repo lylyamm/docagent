@@ -77,7 +77,7 @@ def main() -> None:
     names = list(dict.fromkeys(args.embedder or [settings.embedder])) if needs_vectors else []
     lines = [
         f"\n## {datetime.now():%Y-%m-%d %H:%M} · embedders {', '.join(names) or '-'} · "
-        f"{len(passages)} passages · {len(questions)} questions\n",
+        f"{len(passages)} passages · {len(questions)} questions ({args.questions.name})\n",
         "| mode | hit@1 | hit@5 | MRR@10 | " + " | ".join(f"hit@5 {t}" for t in by_type) + " |",
         "|---" * (4 + len(by_type)) + "|",
     ]
@@ -96,9 +96,21 @@ def main() -> None:
 
     if "bm25" in args.modes:
         record("bm25", evaluate(HybridSearcher(passages), questions, "bm25"))
+    evaluated: list[str] = []
     for name in names:
         embedder = build_embedder(settings, name)
-        searcher = HybridSearcher(passages, embedder, open_store(settings, embedder))
+        store = open_store(settings, embedder)
+        missing = len(store.missing(passages))
+        if missing:
+            # Dense search over part of the corpus would make the model look worse
+            # (or better) than it is: an incomplete index is not evaluated.
+            print(
+                f"{name}: {missing} of {len(passages)} passages have no vector yet, skipped. "
+                f"Finish it first: uv run python scripts/rag_index.py --embedder {name}"
+            )
+            continue
+        evaluated.append(name)
+        searcher = HybridSearcher(passages, embedder, store)
         for mode in args.modes:
             if mode != "bm25":
                 record(f"{mode} {name}", evaluate(searcher, questions, mode))
@@ -114,7 +126,7 @@ def main() -> None:
         (f"{mode} {a}", f"{mode} {b}")
         for mode in args.modes
         if mode != "bm25"
-        for a, b in combinations(names, 2)
+        for a, b in combinations(evaluated, 2)
     ]
     if pairs:
         lines += [

@@ -96,7 +96,8 @@ def main() -> None:
 
     chat = answerer.chat
     lines = [
-        f"\n## {stamp:%Y-%m-%d %H:%M} · answers {PROMPT_VERSION} · {chat.model} · embedder "
+        f"\n## {stamp:%Y-%m-%d %H:%M} · {args.questions.name} · answers {PROMPT_VERSION} · "
+        f"{chat.model} · embedder "
         f"{answerer.searcher.embedder.name} · top {answerer.top_k}\n",
         "| questions | right page given to the model | answered | cited the right page | "
         "cited it, when it was given |",
