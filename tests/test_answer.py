@@ -269,3 +269,10 @@ def test_a_refusal_without_evidence_field_is_accepted_at_once():
         client, sent = chat(reply)
         answer = Answerer(searcher(), client).ask("Who won the 2018 football World Cup?")
         assert not answer.answerable and len(sent) == 1  # no retry, no wait
+
+
+def test_the_answer_language_is_stated_explicitly():
+    question = "How much did global mean sea level rise between 1901 and 2018?"
+    assert "Write the whole answer in English" in build_messages(question, passages())[1]["content"]
+    question = "De combien le niveau de la mer a-t-il monté entre 1901 et 2018 ?"
+    assert "Write the whole answer in French" in build_messages(question, passages())[1]["content"]

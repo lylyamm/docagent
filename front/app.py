@@ -27,7 +27,7 @@ LANGUAGES = {
 }
 POLL_SECONDS = 1.5
 EXAMPLES = [
-    "Quel est le premier secteur émetteur de gaz à effet de serre en France en 2024 ?",
+    "Quelles sont les émissions du secteur de la production d'énergie en 2024 ?",
     "How much did global mean sea level rise between 1901 and 2018?",
     "Combien d'argent sera investi dans les centres de données en 2025 ?",
     "Qui a gagné la Coupe du monde de football 2018 ?",

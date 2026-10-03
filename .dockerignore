@@ -8,8 +8,8 @@
 **/__pycache__
 data
 !data/glossary_*.json
+!data/corpus.json
 tests
-scripts
 .vscode
 *.md
 !README.md

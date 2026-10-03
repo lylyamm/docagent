@@ -29,6 +29,7 @@ rejected is kept in the answer (model_answerable, rejected_quotes,
 unsupported_numbers) to understand each refusal.
 """
 
+import logging
 import re
 import time
 
@@ -43,7 +44,9 @@ from .embeddings import build_embedder
 from .index import load_passages, open_store
 from .search import HybridSearcher
 
-PROMPT_VERSION = "ask-v3.3"  # v3 prompt; checks fixed after reading errors
+logger = logging.getLogger(__name__)
+
+PROMPT_VERSION = "ask-v3.4"  # + answer language stated explicitly
 
 SYSTEM_PROMPT = """You answer questions about climate and energy reports (IPCC, IEA, \
 French High Council on Climate) using ONLY the numbered excerpts you are given.
@@ -72,6 +75,7 @@ NOT_FOUND = {
     "en": "I could not find the answer in the indexed reports.",
 }
 
+LANGUAGE_NAMES = {"fr": "French", "en": "English"}
 _CITATION_RE = re.compile(r"\[(\d{1,2})\]")
 # A number standing alone: not the digits of CO2, CH4, SSP1 or a footnote call glued
 # to a word ("emissions23").
@@ -162,6 +166,12 @@ def build_messages(question: str, passages: list[Passage]) -> list[dict]:
         where = f"{p.title}, p. {p.page}" + (f" — {p.section}" if p.section else "")
         excerpts.append(f"[{n}] ({where})\n{p.text}")
     user = f"Question: {question}\n\nExcerpts:\n\n" + "\n\n".join(excerpts)
+    language, _confidence = classify_text(question)
+    if language in LANGUAGE_NAMES:
+        # Said explicitly: with "the language of the question" only, a small model
+        # answering from English excerpts mixes languages ("0.20 mètres ... entre").
+        name = LANGUAGE_NAMES[language]
+        user += f"\n\nWrite the whole answer in {name}, even where the excerpts are not."
     return [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user}]
 
 
@@ -349,7 +359,20 @@ def build_answerer(settings: Settings | None = None) -> Answerer:
     if not path.exists():
         raise FileNotFoundError(f"{path} not found: run scripts/rag_index.py first")
     embedder = build_embedder(settings)
-    searcher = HybridSearcher(load_passages(path), embedder, open_store(settings, embedder))
+    passages, store = load_passages(path), open_store(settings, embedder)
+    missing = len(store.missing(passages))
+    if missing:
+        # Dense search would only see part of the corpus: answers stay possible
+        # (BM25 sees everything) but are worse, so say it loudly.
+        logger.warning(
+            "%d of %d passages have no %s vector in %s: run scripts/rag_index.py or "
+            "scripts/rag_copy_vectors.py",
+            missing,
+            len(passages),
+            embedder.name,
+            store.collection,
+        )
+    searcher = HybridSearcher(passages, embedder, store)
     # Temperature 0: the most likely wording, closest to the excerpts, and repeatable.
     chat = ChatClient(settings, temperature=0.0, max_retries=settings.ask_max_retries)
     return Answerer(searcher, chat, top_k=settings.rag_top_k)

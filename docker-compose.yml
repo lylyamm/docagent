@@ -1,7 +1,22 @@
 # docker compose up --build   ->  front on http://localhost:8501, API on http://localhost:8000/docs
 # Without a .env file the API runs with TRANSLATOR=fake (layout demo, no key needed).
+#
+# Questions on the reports need a search index: passages in ./data/index (mounted),
+# vectors in the qdrant service. Either copy the vectors of an index built locally:
+#     docker compose up -d qdrant
+#     uv run python scripts/rag_copy_vectors.py
+# or build everything in Docker (PDFs in ./data/raw, about 45 min on a laptop CPU):
+#     docker compose --profile index run --rm indexer
 
 services:
+  qdrant:
+    image: qdrant/qdrant:v1.19.1
+    volumes:
+      - qdrant-data:/qdrant/storage
+    ports:
+      - "6333:6333"  # also the dashboard: http://localhost:6333/dashboard
+    restart: unless-stopped
+
   api:
     build: .
     image: docagent:latest
@@ -11,10 +26,15 @@ services:
         required: false
     environment:
       TRANSLATOR: ${TRANSLATOR:-llm}
+      EMBEDDER: e5            # the model baked into the image
+      QDRANT_URL: http://qdrant:6333
     ports:
       - "8000:8000"
     volumes:
       - docagent-data:/data
+      - ./data/index:/index:ro  # passages.jsonl (vectors live in qdrant)
+    depends_on:
+      - qdrant
     restart: unless-stopped
 
   front:
@@ -23,7 +43,13 @@ services:
     depends_on:
       api:
         condition: service_healthy
-    command: ["streamlit", "run", "front/app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+    command:
+      - streamlit
+      - run
+      - front/app.py
+      - --server.port=8501
+      - --server.address=0.0.0.0
+      - --server.headless=true  # no first-run email prompt, no browser to open
     environment:
       DOCAGENT_API_URL: http://api:8000
     ports:
@@ -32,5 +58,19 @@ services:
       disable: true
     restart: unless-stopped
 
+  indexer:  # one-off: docker compose --profile index run --rm indexer
+    image: docagent:latest
+    pull_policy: never
+    profiles: ["index"]
+    command: ["python", "scripts/rag_index.py", "--embedder", "e5"]
+    environment:
+      QDRANT_URL: http://qdrant:6333
+    volumes:
+      - ./data/raw:/app/data/raw:ro
+      - ./data/index:/index
+    depends_on:
+      - qdrant
+
 volumes:
   docagent-data:
+  qdrant-data:
