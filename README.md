@@ -211,9 +211,6 @@ Every design choice, with what was measured and what was rejected, is in [DECISI
 5. **Industrialization**: CI/CD, cloud deployment, tracing and cost monitoring
 6. **Evaluation**: translation benchmark (COMET, chrF) against official IPCC French versions
 
-## How this project was built
-
-I designed and steered this project, tested it on real reports and reviewed every change; much of the code was written with an AI assistant (Claude). My part: defining what to build, checking the translated PDFs page by page against the originals, finding the defects (fonts, overlaps, lost colours and styles, wrong terminology, missing spacing), choosing what to measure for the search and the answers, reading the failures, deciding the fixes and keeping [DECISIONS.md](DECISIONS.md).
 
 ## Project layout
 
