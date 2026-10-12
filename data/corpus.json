@@ -6,7 +6,11 @@
     "org": "IPCC",
     "year": 2021,
     "lang": "en",
-    "url": "https://www.ipcc.ch/report/ar6/wg1/chapter/summary-for-policymakers/"
+    "url": "https://www.ipcc.ch/report/ar6/wg1/chapter/summary-for-policymakers/",
+    "summary_pages": [
+      4,
+      31
+    ]
   },
   {
     "id": "giec-rid-fr",
@@ -15,7 +19,11 @@
     "org": "GIEC",
     "year": 2021,
     "lang": "fr",
-    "url": "https://www.ipcc.ch/report/ar6/wg1/downloads/report/IPCC_AR6_WG1_SPM_French.pdf"
+    "url": "https://www.ipcc.ch/report/ar6/wg1/downloads/report/IPCC_AR6_WG1_SPM_French.pdf",
+    "summary_pages": [
+      8,
+      39
+    ]
   },
   {
     "id": "iea-weo-2025",
@@ -24,7 +32,11 @@
     "org": "IEA",
     "year": 2025,
     "lang": "en",
-    "url": "https://iea.blob.core.windows.net/assets/0a7a40a4-5dcb-4d6e-a7ad-76a1c90ec8eb/WorldEnergyOutlook2025.pdf"
+    "url": "https://iea.blob.core.windows.net/assets/0a7a40a4-5dcb-4d6e-a7ad-76a1c90ec8eb/WorldEnergyOutlook2025.pdf",
+    "summary_pages": [
+      17,
+      24
+    ]
   },
   {
     "id": "aie-weo-2025-resume",
@@ -33,7 +45,11 @@
     "org": "AIE",
     "year": 2025,
     "lang": "fr",
-    "url": "https://iea.blob.core.windows.net/assets/3fd1e7be-22e6-4466-947a-399d7d8fee29/WEO2025_Executivesummary_French.pdf"
+    "url": "https://iea.blob.core.windows.net/assets/3fd1e7be-22e6-4466-947a-399d7d8fee29/WEO2025_Executivesummary_French.pdf",
+    "summary_pages": [
+      3,
+      15
+    ]
   },
   {
     "id": "hcc-ra-2025",
@@ -42,6 +58,10 @@
     "org": "HCC",
     "year": 2025,
     "lang": "fr",
-    "url": "https://www.hautconseilclimat.fr/wp-content/uploads/2025/07/HCC_RA_2025-18.07_web.pdf"
+    "url": "https://www.hautconseilclimat.fr/wp-content/uploads/2025/07/HCC_RA_2025-18.07_web.pdf",
+    "summary_pages": [
+      3,
+      12
+    ]
   }
 ]

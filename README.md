@@ -75,7 +75,7 @@ The 3 questions not answered were refusals: two whose page the search missed (bo
 | Checking the answers | Without checks, 2 wrong answers out of 24 (an invented ranking, a figure from the wrong passage); with verified quotes and figures, 0 |
 | A prompt change | "Translate units" turned 15.6 Mt into "15.6 billion tonnes": reverted, units are now copied |
 
-Every run is in [evals/rag_results.md](evals/rag_results.md), every answer in [evals/answers/](evals/answers/), and the reasoning in [DECISIONS.md](DECISIONS.md).
+Every run is in [evals/rag_results.md](evals/rag_results.md) and every answer in [evals/answers/](evals/answers/).
 
 ## Quickstart with Docker
 
@@ -191,8 +191,6 @@ question ──► embed (e5) ──► Qdrant: 20 nearest passages ──┐
 7. **Answer** (`answer.py`): numbered passages, JSON answer with evidence, verification in code, and the reasons of each refusal kept for evaluation.
 8. **Evaluate** (`evaluation.py`, `scripts/rag_eval*.py`): hit@k and MRR for the search, paired tests (McNemar, sign test) to compare two systems on the same questions, answer-level metrics, and a test set kept aside ([evals/README.md](evals/README.md)).
 
-Every design choice, with what was measured and what was rejected, is in [DECISIONS.md](DECISIONS.md).
-
 ## Limitations
 
 - Vertical text (rotated axis labels) is not translated yet.
@@ -211,7 +209,6 @@ Every design choice, with what was measured and what was rejected, is in [DECISI
 5. **Industrialization**: CI/CD, cloud deployment, tracing and cost monitoring
 6. **Evaluation**: translation benchmark (COMET, chrF) against official IPCC French versions
 
-
 ## Project layout
 
 ```
@@ -227,7 +224,6 @@ evals/                   # question sets, results, saved answers
 data/samples/            # public PDF excerpts (see data/SOURCES.md)
 data/corpus.json         # the reports indexed for questions, with their public links
 data/glossary_en_fr.json # imposed terminology (official IPCC French)
-DECISIONS.md             # design decisions log
 ```
 
 ## Data and license

@@ -247,3 +247,28 @@ Without an answer in the reports: refused 4/4 (answered anyway: none).
 Missed: t11, t12, t15. Answers to read: evals/answers/2026-10-03_1240.jsonl
 Refused although the right page was given: t15: figures not in the cited excerpts (2.085, 47, 1.830, 1.5).
 LLM: 19 requests, 29977 tokens in, 2471 out.
+
+## 2026-10-12 21:12 · translated queries · e5 · 24 questions (rag_questions.jsonl)
+
+| strategy | hit@1 | hit@5 | MRR@10 | hit@5 cross-lingual | hit@5 paraphrase | hit@5 exact |
+|---|---|---|---|---|---|---|
+| original | 67% | 96% | 0.80 | 100% | 89% | 100% |
+| translated | 54% | 79% | 0.66 | 100% | 89% | 64% |
+| both | 58% | 96% | 0.73 | 100% | 100% | 91% |
+| bm25 both | 62% | 92% | 0.76 | 100% | 89% | 91% |
+| bm25 x2 | 50% | 92% | 0.70 | 75% | 89% | 100% |
+
+Paired tests against original: questions won / lost, two-sided p.
+
+| strategy | hit@5 won / lost | McNemar p | rank better / worse | sign test p |
+|---|---|---|---|---|
+| translated | 1 / 5 | 0.219 | 6 / 9 | 0.607 |
+| both | 1 / 1 | 1.000 | 6 / 8 | 0.791 |
+| bm25 both | 0 / 1 | 1.000 | 3 / 6 | 0.508 |
+| bm25 x2 | 0 / 1 | 1.000 | 3 / 10 | 0.092 |
+
+- missed in the top 5 by original: q17
+- missed in the top 5 by translated: q11, q18, q19, q20, q23
+- missed in the top 5 by both: q03
+- missed in the top 5 by bm25 both: q07, q17
+- missed in the top 5 by bm25 x2: q17, q24

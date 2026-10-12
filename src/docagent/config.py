@@ -70,6 +70,7 @@ class Settings(BaseSettings):
 
     # Document search (RAG)
     rag_index_dir: Path = Path("data/index")
+    corpus_path: Path = Path("data/corpus.json")  # titles, URLs, summary pages
     # Qdrant: None = embedded on disk in <rag_index_dir>/qdrant (no server);
     # "http://qdrant:6333" = the docker-compose service; ":memory:" = tests.
     qdrant_url: str | None = None
@@ -82,6 +83,12 @@ class Settings(BaseSettings):
     rag_chunk_overlap: int = 150
     rag_top_k: int = 5  # passages given to the LLM to answer a question
     ask_max_retries: int = 2  # a question is interactive: fail fast (translation: 8)
+
+    # Agent (LangGraph)
+    agent_confirm_pages: int = 50  # longer PDFs: the agent asks before translating
+    # The supervisor's model (understands the request, judges the answers); empty:
+    # the same model as the tools (LLM_MODEL).
+    agent_model: str | None = None
 
     # API server
     max_upload_mb: int = 20

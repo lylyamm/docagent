@@ -45,20 +45,39 @@ class HybridSearcher:
         self.rrf_k = rrf_k
         self._query_vectors: dict[str, list[float]] = {}  # one API call per distinct query
 
-    def dense(self, query: str, top_k: int) -> list[tuple[str, float]]:
+    def dense(
+        self, query: str, top_k: int, doc_ids: list[str] | None = None
+    ) -> list[tuple[str, float]]:
         if self.embedder is None or self.store is None:
             raise RuntimeError("dense search needs an embedder and a vector store")
         if query not in self._query_vectors:
             self._query_vectors[query] = self.embedder.embed_query(query)
-        hits = self.store.search(self._query_vectors[query], top_k)
+        hits = self.store.search(self._query_vectors[query], top_k, doc_ids)
         return [(pid, score) for pid, score in hits if pid in self.by_id]
 
-    def lexical(self, query: str, top_k: int) -> list[tuple[str, float]]:
-        return [(self.passages[i].id, score) for i, score in self.bm25.search(query, top_k)]
+    def lexical(
+        self, query: str, top_k: int, doc_ids: list[str] | None = None
+    ) -> list[tuple[str, float]]:
+        if not doc_ids:
+            return [(self.passages[i].id, score) for i, score in self.bm25.search(query, top_k)]
+        # BM25 scores every passage that contains a query word anyway: keep those
+        # of the wanted documents, then cut.
+        wanted = set(doc_ids)
+        ranked = self.bm25.search(query, len(self.passages))
+        hits = [(self.passages[i].id, s) for i, s in ranked if self.passages[i].doc_id in wanted]
+        return hits[:top_k]
 
-    def search(self, query: str, top_k: int = 5, mode: Mode = "hybrid") -> list[SearchHit]:
-        dense = self.dense(query, self.candidates) if mode in ("hybrid", "dense") else []
-        lexical = self.lexical(query, self.candidates) if mode in ("hybrid", "bm25") else []
+    def search(
+        self,
+        query: str,
+        top_k: int = 5,
+        mode: Mode = "hybrid",
+        doc_ids: list[str] | None = None,
+    ) -> list[SearchHit]:
+        """The ``top_k`` best passages; only from the documents ``doc_ids`` if given."""
+        n = self.candidates
+        dense = self.dense(query, n, doc_ids) if mode in ("hybrid", "dense") else []
+        lexical = self.lexical(query, n, doc_ids) if mode in ("hybrid", "bm25") else []
         dense_rank = {pid: r for r, (pid, _) in enumerate(dense, start=1)}
         bm25_rank = {pid: r for r, (pid, _) in enumerate(lexical, start=1)}
 

@@ -12,7 +12,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pymupdf
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..config import Settings
 from ..pdf.language import detect_language
@@ -31,6 +31,9 @@ class CorpusDoc(BaseModel):
     year: int | None = None
     lang: str | None = None  # detected when missing
     url: str | None = None
+    # [first, last] page of the report's own summary (executive summary, SPM...),
+    # written by hand: summaries without a focus start from it.
+    summary_pages: list[int] | None = Field(default=None, min_length=2, max_length=2)
 
 
 def load_corpus(path: str | Path) -> list[CorpusDoc]:

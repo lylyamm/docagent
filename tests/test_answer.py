@@ -187,6 +187,14 @@ def test_invalid_json_and_rate_limits_are_retried():
     assert answer.answerable and len(sent) == 3
 
 
+def test_a_refusal_says_why_in_the_log(caplog):
+    body = {"message": "Service tier capacity exceeded for this model."}
+    client, _ = chat(*(httpx.Response(429, json=body) for _ in range(3)))
+    with pytest.raises(ChatError, match="HTTP 429: Service tier capacity exceeded"):
+        Answerer(searcher(), client).ask("Investment in data centres in 2025?")
+    assert "HTTP 429: Service tier capacity exceeded" in caplog.text
+
+
 def test_chat_gives_up_after_the_retries():
     client, _ = chat("x", "y", "z")
     with pytest.raises(ChatError):

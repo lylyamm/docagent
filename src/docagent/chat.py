@@ -35,6 +35,23 @@ class _Retryable(Exception):
         self.response = response
 
 
+def _reason(response: httpx.Response, limit: int = 200) -> str:
+    """The provider's own words for a refusal (a 429 can be a rate limit or a full
+    service tier: only the body tells which)."""
+    try:
+        body = response.json()
+    except ValueError:
+        return response.text.strip()[:limit]
+    if isinstance(body, dict):
+        error = body.get("error")
+        for value in (body.get("message"), body.get("detail"), error):
+            if isinstance(value, dict):
+                value = value.get("message")
+            if isinstance(value, str) and value.strip():
+                return value.strip()[:limit]
+    return ""
+
+
 class ChatClient:
     def __init__(
         self,
@@ -100,7 +117,9 @@ class ChatClient:
             },
         )
         if response.status_code == 429 or response.status_code >= 500:
-            raise _Retryable(f"HTTP {response.status_code}", response)
+            reason = _reason(response)
+            status = f"HTTP {response.status_code}" + (f": {reason}" if reason else "")
+            raise _Retryable(status, response)
         response.raise_for_status()  # other 4xx: a bad key or a bug, retrying won't help
         payload = response.json()
         usage = payload.get("usage") or {}

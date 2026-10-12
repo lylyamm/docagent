@@ -10,7 +10,14 @@ import uuid
 from pathlib import Path
 
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, PointStruct, VectorParams
+from qdrant_client.models import (
+    Distance,
+    FieldCondition,
+    Filter,
+    MatchAny,
+    PointStruct,
+    VectorParams,
+)
 
 from .chunking import Passage
 
@@ -89,10 +96,17 @@ class VectorStore:
         for i in range(0, len(points), 256):
             self.client.upsert(self.collection, points=points[i : i + 256])
 
-    def search(self, vector: list[float], top_k: int) -> list[tuple[str, float]]:
-        """(passage id, cosine similarity), best first."""
+    def search(
+        self, vector: list[float], top_k: int, doc_ids: list[str] | None = None
+    ) -> list[tuple[str, float]]:
+        """(passage id, cosine similarity), best first; only in ``doc_ids`` if given."""
+        where = None
+        if doc_ids:
+            # Filter on the payload stored with each vector, inside Qdrant: the
+            # top_k are the best passages *of these documents*.
+            where = Filter(must=[FieldCondition(key="doc_id", match=MatchAny(any=doc_ids))])
         hits = self.client.query_points(
-            self.collection, query=vector, limit=top_k, with_payload=True
+            self.collection, query=vector, limit=top_k, query_filter=where, with_payload=True
         ).points
         return [(h.payload["passage_id"], h.score) for h in hits]
 

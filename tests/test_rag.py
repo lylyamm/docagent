@@ -284,3 +284,15 @@ def test_local_embedder_adds_each_model_prompts(monkeypatch):
     e5.embed_query("q")
     e5.embed_documents(["d"])
     assert seen[2:] == ["query: q", "passage: d"]
+
+
+def test_search_can_be_limited_to_some_documents():
+    """Both halves are filtered: Qdrant on the doc_id payload, BM25 after scoring."""
+    from test_answer import searcher
+
+    s = searcher()
+    query = "transports emissions 2024 investment"  # d1 matches best, d3 by one word
+    assert s.search(query, 1, "bm25")[0].passage.doc_id == "d1"
+    for mode in ("hybrid", "dense", "bm25"):
+        hits = s.search(query, 3, mode, doc_ids=["d3"])
+        assert hits and {h.passage.doc_id for h in hits} == {"d3"}, mode
