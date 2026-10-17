@@ -5,6 +5,9 @@
     GET  /v1/jobs/{job_id}          status and progress
     GET  /v1/jobs/{job_id}/download translated PDF (when done)
     POST /v1/ask                    question -> answer from the indexed reports, with sources
+    POST /v1/agent                  request -> 202 {"run_id": ...}: the agent runs in the background
+    GET  /v1/agent/{run_id}         plan, nodes done, message parts so far, then the message
+    POST /v1/agent/{run_id}/resume  answer the agent's question ("oui"/"non") and continue
     GET  /health                    liveness + configured LLM
 
 Run locally:  uv run uvicorn docagent.api.app:serve --factory --reload
@@ -24,6 +27,7 @@ from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadF
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from ..agent.runs import AgentRun, AgentRuns, RunStateError
 from ..chat import ChatError
 from ..config import Settings, get_settings
 from ..pdf import rebuild_document
@@ -52,6 +56,14 @@ class AskRequest(BaseModel):
     top_k: int | None = Field(default=None, ge=1, le=10, description="passages given to the LLM")
 
 
+class AgentRequest(BaseModel):
+    request: str = Field(min_length=2, max_length=1000)
+
+
+class AgentAnswer(BaseModel):
+    answer: str = Field(min_length=1, max_length=100, description='e.g. "oui" / "non"')
+
+
 class Health(BaseModel):
     status: str
     translator: str
@@ -62,6 +74,7 @@ def create_app(
     settings: Settings | None = None,
     translator_factory: Callable[[], Translator] | None = None,
     answerer_factory: Callable[[], Answerer] | None = None,
+    agent_factory: Callable[[Callable[[], Answerer]], AgentRuns] | None = None,
     warm_up: bool = False,
 ) -> FastAPI:
     """Build the app. Tests inject settings, a fake translator and a fake answerer.
@@ -86,6 +99,18 @@ def create_app(
             if not answerer:
                 answerer.append(make_answerer())
             return answerer[0]
+
+    # The agent (tools + supervisor) is built on its first request too; it shares the
+    # answerer, so the search index and the embedding model are loaded once.
+    make_agent = agent_factory or (lambda get: default_agent(settings, get))
+    agent: list[AgentRuns] = []
+    agent_lock = threading.Lock()
+
+    def get_agent() -> AgentRuns:
+        with agent_lock:
+            if not agent:
+                agent.append(make_agent(get_answerer))
+            return agent[0]
 
     def warm() -> None:
         start = time.perf_counter()
@@ -242,7 +267,53 @@ def create_app(
         )
         return answer
 
+    @app.post("/v1/agent", status_code=202)
+    def agent_start(body: AgentRequest) -> AgentRun:
+        try:
+            runs = get_agent()
+        except (RuntimeError, FileNotFoundError) as exc:  # no index, no sign-in...
+            raise HTTPException(503, f"agent not available: {exc}") from exc
+        run = runs.start(body.request)
+        logger.info("agent run started", extra={"run_id": run.run_id})
+        return run
+
+    @app.get("/v1/agent/{run_id}")
+    def agent_status(run_id: str) -> AgentRun:
+        run = get_agent().get(run_id) if agent else None
+        if run is None:
+            raise HTTPException(404, "unknown run")
+        return run
+
+    @app.post("/v1/agent/{run_id}/resume", status_code=202)
+    def agent_resume(run_id: str, body: AgentAnswer) -> AgentRun:
+        if not agent:
+            raise HTTPException(404, "unknown run")
+        try:
+            return get_agent().resume(run_id, body.answer)
+        except KeyError as exc:
+            raise HTTPException(404, "unknown run") from exc
+        except RunStateError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
     return app
+
+
+def default_agent(settings: Settings, get_answerer: Callable[[], Answerer]) -> AgentRuns:
+    """The real agent: tools on LLM_MODEL, supervisor on AGENT_PROVIDER / AGENT_MODEL,
+    at most AGENT_MAX_CALLS_PER_REQUEST supervisor calls per request."""
+    from ..agent import Toolbox
+    from ..agent.supervisor import agent_chat_client
+
+    token = None
+    if settings.agent_provider == "vertex":
+        from ..gcp import google_token
+
+        token = google_token(settings.vertex_project)  # one sign-in, refreshed as needed
+    per_request = settings.model_copy(
+        update={"agent_max_calls": settings.agent_max_calls_per_request}
+    )
+    tools = Toolbox(settings, make_answerer=get_answerer)
+    return AgentRuns(tools, settings, lambda: agent_chat_client(per_request, token=token))
 
 
 def _run_job(store: JobStore, job_id: str, make_translator: Callable[[], Translator]) -> None:

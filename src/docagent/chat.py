@@ -13,6 +13,7 @@ the two is planned for the industrialisation week.
 import logging
 import random
 import time
+from collections.abc import Callable
 from typing import TypeVar
 
 import httpx
@@ -29,6 +30,10 @@ class ChatError(RuntimeError):
     """The model could not give a valid answer after every retry."""
 
 
+class CallBudgetExceeded(ChatError):
+    """The client already sent its maximum number of requests (a cost guard)."""
+
+
 class _Retryable(Exception):
     def __init__(self, message: str, response: httpx.Response | None = None) -> None:
         super().__init__(message)
@@ -42,6 +47,8 @@ def _reason(response: httpx.Response, limit: int = 200) -> str:
         body = response.json()
     except ValueError:
         return response.text.strip()[:limit]
+    if isinstance(body, list) and body:  # Google wraps some errors in a list
+        body = body[0]
     if isinstance(body, dict):
         error = body.get("error")
         for value in (body.get("message"), body.get("detail"), error):
@@ -61,11 +68,26 @@ class ChatClient:
         clock=time.monotonic,
         temperature: float = 0.1,
         max_retries: int | None = None,
+        *,
+        base_url: str | None = None,
+        model: str | None = None,
+        token: Callable[[], str] | None = None,
+        max_requests: int | None = None,
+        rate_limit_retries: int | None = None,
     ) -> None:
+        """``base_url``/``model``/``token`` override the settings for another provider;
+        ``token`` returns a short-lived bearer token (e.g. Google's), asked before each
+        request. ``max_requests``: at most that many answered requests (the ones billed;
+        refused ones do not count), None = no limit. ``rate_limit_retries``: retries
+        allowed for refusals for lack of capacity (429), on top of ``max_retries``: a
+        shared model that is busy for a minute is not an error worth giving up on."""
         self.settings = settings or get_settings()
-        self.base_url = self.settings.resolved_base_url
-        self.model = self.settings.resolved_model
-        self._api_key = self.settings.resolved_api_key  # raises if a required key is missing
+        self.base_url = (base_url or self.settings.resolved_base_url).rstrip("/")
+        self.model = model or self.settings.resolved_model
+        self._token = token
+        # A fixed key, unless a token provider is given; raises if a required key is missing.
+        self._api_key = None if token else self.settings.resolved_api_key
+        self.max_requests = max_requests
         self.client = client or httpx.Client(timeout=self.settings.llm_timeout_s)
         self.sleep = sleep
         self.clock = clock
@@ -73,14 +95,18 @@ class ChatClient:
         # Someone waiting for an answer cannot wait for 8 retries with growing pauses.
         self.max_retries = self.settings.llm_max_retries if max_retries is None else max_retries
         self._last_request = float("-inf")
-        self.requests = 0
+        self.requests = 0  # every request sent, refused ones included
+        self.answered = 0  # requests that got an answer (billed)
+        self.rate_limit_retries = rate_limit_retries or 0
         self.input_tokens = 0
         self.output_tokens = 0
 
     def complete_json(self, messages: list[dict], schema: type[T]) -> T:
         """Send the messages; return the answer parsed into ``schema``."""
-        attempts = self.max_retries + 1
-        for attempt in range(attempts):
+        failures = rate_limited = 0  # other failures, and 429 refusals
+        attempt = 0
+        while True:
+            attempt += 1
             try:
                 content = self._call(messages)
                 try:
@@ -88,23 +114,30 @@ class ChatClient:
                 except ValidationError as exc:
                     raise _Retryable(f"invalid JSON answer: {exc.errors()[:1]}") from exc
             except (httpx.TransportError, _Retryable) as exc:
-                if attempt == attempts - 1:
-                    raise ChatError(f"no valid answer after {attempts} attempts: {exc}") from exc
-                delay = self._delay(attempt, exc)
-                logger.warning(
-                    "chat attempt %d failed (%s), retry in %.1fs", attempt + 1, exc, delay
-                )
+                response = getattr(exc, "response", None)
+                if response is not None and response.status_code == 429:
+                    rate_limited += 1
+                else:
+                    failures += 1
+                extra = max(0, rate_limited - self.rate_limit_retries)  # beyond the 429 allowance
+                if failures + extra > self.max_retries:
+                    raise ChatError(f"no valid answer after {attempt} attempts: {exc}") from exc
+                delay = self._delay(rate_limited - 1 if rate_limited else failures - 1, exc)
+                logger.warning("chat attempt %d failed (%s), retry in %.1fs", attempt, exc, delay)
                 self.sleep(delay)
-        raise AssertionError("unreachable")
 
     def _call(self, messages: list[dict]) -> str:
+        if self.max_requests is not None and self.answered >= self.max_requests:
+            raise CallBudgetExceeded(f"request limit reached ({self.max_requests})")
         wait = self._last_request + self.settings.llm_min_interval_s - self.clock()
         if wait > 0:
             self.sleep(wait)
         self._last_request = self.clock()
         self.requests += 1
         headers = {"Content-Type": "application/json"}
-        if self._api_key is not None:
+        if self._token is not None:
+            headers["Authorization"] = f"Bearer {self._token()}"
+        elif self._api_key is not None:
             headers["Authorization"] = f"Bearer {self._api_key.get_secret_value()}"
         response = self.client.post(
             f"{self.base_url}/chat/completions",
@@ -121,6 +154,7 @@ class ChatClient:
             status = f"HTTP {response.status_code}" + (f": {reason}" if reason else "")
             raise _Retryable(status, response)
         response.raise_for_status()  # other 4xx: a bad key or a bug, retrying won't help
+        self.answered += 1
         payload = response.json()
         usage = payload.get("usage") or {}
         self.input_tokens += usage.get("prompt_tokens", 0)

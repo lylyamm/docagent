@@ -66,6 +66,20 @@ def text_sample(doc: pymupdf.Document) -> str:
     return " ".join(parts)[:SAMPLE_CHARS]
 
 
+def french_or_english(text: str, default: str = "en") -> str:
+    """The more likely of French and English, even for a short text.
+
+    ``classify_text`` refuses texts under MIN_LETTERS letters (too short to be sure);
+    a short request ("Résume le WEO", "Que prévoit le rapport 1 ?") only needs the
+    more likely of the corpus's two languages. A tie ("SSP1-1.9?"): ``default``.
+    """
+    ranks = dict(_identifier().rank(text))
+    french, english = ranks.get("fr", 0.0), ranks.get("en", 0.0)
+    if french == english:
+        return default
+    return "fr" if french > english else "en"
+
+
 def classify_text(text: str) -> tuple[str | None, float]:
     """(language, confidence) of a text, or (None, 0.0) if it has too few letters."""
     if sum(c.isalpha() for c in text) < MIN_LETTERS:

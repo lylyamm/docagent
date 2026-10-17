@@ -179,7 +179,9 @@ def check_points(
 # unrelated facts were labelled a "difference".
 # v3: a side may not say what its report does NOT contain (absence claim, checked by
 # code), and an aspect that one report alone addresses is "only_in", not a difference.
-COMPARE_PROMPT_VERSION = "compare-v3"
+# v4: one short sentence per side; the agent asks for 3 points (a comparison is read in
+# a chat window: 4-5 points of 5-8 lines each were too long to read).
+COMPARE_PROMPT_VERSION = "compare-v4"
 
 COMPARE_SYSTEM_PROMPT = """You compare what climate and energy reports (IPCC, IEA, \
 French High Council on Climate) say about a topic, using ONLY the numbered excerpts you \
@@ -194,8 +196,9 @@ dates, scenarios). Two unrelated facts are not a difference;
 report has something on an aspect, it is "only_in", never a "difference".
 - "aspect": the question or aspect compared, in a few words (e.g. "emissions in 2035").
 - "sides": what each report says about it, one side per report: {{"report": "A", \
-"says": "...", "evidence": [...]}}. An agreement or a difference has one side per \
-report (at least two); "only_in" has exactly one side. A side quotes ONLY excerpts of \
+"says": "...", "evidence": [...]}}. "says" is ONE short sentence (at most 30 words) with \
+the key fact. An agreement or a difference has one side per report (at least two); \
+"only_in" has exactly one side. A side quotes ONLY excerpts of \
 its own report. Never write what a report does not say: the code adds that, carefully.
 
 Rules:
@@ -230,7 +233,7 @@ ABSENCE_NOTE = {
 # passages read: the code rejects them. A negation about the world stays allowed
 # ("these pathways are not compatible with 1.5 °C" is something the report says).
 _REPORT_VERBS_FR = (
-    r"mentionn\w*|pr[ée]cis\w*|fourni\w*|donn\w*|[ée]voqu\w*|abord\w*|indiqu\w*"
+    r"mention\w*|pr[ée]cis\w*|fourni\w*|donn\w*|[ée]voqu\w*|abord\w*|indiqu\w*"
     r"|chiffr\w*|trait\w*|parl\w*|d[ée]taill\w*|quantifi\w*|cit\w*"
 )
 _ABSENCE_RE = re.compile(
@@ -239,13 +242,19 @@ _ABSENCE_RE = re.compile(
             # "ne précise pas", "ne le mentionne pas", "n'évoque aucun chiffre"
             rf"\bn(?:e\b|['’])\s*(?:\w+\s+){{0,2}}?(?:{_REPORT_VERBS_FR})\s+(?:\w+\s+)?(?:pas|aucun\w*|jamais|rien)\b",
             rf"\bsans\s+(?:les?\s+|la\s+|l['’]\s*)?(?:{_REPORT_VERBS_FR})",
-            r"\baucune?\s+(?:chiffre|donn[ée]e|mention|pr[ée]cision|valeur)",
-            r"\bpas\s+de\s+(?:chiffres?|donn[ée]es|mention|pr[ée]cision)",
+            r"\baucune?\s+(?:chiffre|donn[ée]e|mention|pr[ée]cision|valeur|pourcentage|estimation)",
+            r"\bpas\s+de\s+(?:chiffres?|donn[ée]es|mention|pr[ée]cision|pourcentages?)",
+            # passive: "n'est pas mentionné", "ne sont pas précisés"
+            rf"\bn(?:e\b|['’])\s*(?:est|sont)\s+pas\s+(?:\w+\s+)?(?:{_REPORT_VERBS_FR})",
             r"\b(?:reste|est|demeure)\s+(?:muet|silencieux)|\bpasse\s+sous\s+silence",
             r"\b(?:does|do|did)\s*(?:n['’]t|\s+not)\s+(?:\w+\s+)?(?:mention|specify|provide|give"
             r"|discuss|address|quantify|state|detail|cover|include)",
             r"\bwithout\s+(?:mentioning|specifying|giving|providing|quantifying|stating)",
-            r"\bno\s+(?:specific\s+|precise\s+)?(?:figures?|mention|data|numbers?|values?)\b",
+            r"\bno\s+(?:specific\s+|precise\s+|explicit\s+)?(?:figures?|mention|data|numbers?"
+            r"|values?|percentages?|estimates?|details?)\b",
+            # passive: "is not mentioned", "are not quantified"
+            r"\b(?:is|are|was|were)\s*(?:n['’]t|\s+not)\s+(?:\w+\s+)?(?:mentioned|specified"
+            r"|provided|given|discussed|addressed|quantified|stated|detailed|covered)\b",
             r"\bis\s+silent\b|\bsilent\s+on\b",
         ]
     ),

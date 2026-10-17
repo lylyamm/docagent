@@ -37,7 +37,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from ..chat import ChatClient
 from ..config import Settings, get_settings
-from ..pdf.language import classify_text
+from ..pdf.language import classify_text, french_or_english
 from .bm25 import tokenize
 from .chunking import Passage
 from .embeddings import build_embedder
@@ -154,10 +154,10 @@ def question_language(question: str) -> str:
     """Language of the "not found" message, French or English.
 
     The model answers in the language of the question on its own; this is only
-    for the message written in code. Too short to tell ("SSP1-1.9?"): English.
+    for the message written in code. A short French question ("Que prévoit le
+    rapport 1 ?") is French; no clue at all ("SSP1-1.9?"): English.
     """
-    language, _confidence = classify_text(question)
-    return "fr" if language == "fr" else "en"
+    return french_or_english(question, default="en")
 
 
 def build_messages(question: str, passages: list[Passage]) -> list[dict]:

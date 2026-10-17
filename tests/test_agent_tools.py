@@ -420,6 +420,13 @@ def test_comparison_refuses_bad_requests_before_any_llm_call(tmp_path, doc_ids, 
         "Le GIEC reste muet sur ce point.",
         "The SPM does not provide figures for 2050.",
         "No specific figures are given.",
+        # what slipped through on the IEA / HCC comparison in English (15 Oct.)
+        "No specific percentage of energy efficiency improvement is mentioned.",
+        "The 2035 target is not specified in the HCC report.",
+        "L'objectif 2035 n'est pas mentionné.",
+        "Aucun pourcentage d'amélioration n'est donné.",
+        # what slipped through on the HCC / GIEC comparison (16 Oct.)
+        "Diminution des puits, sans mention explicite de données sur les forêts avant 2100.",
     ],
 )
 def test_absence_claims_are_detected(text):
@@ -436,6 +443,8 @@ def test_absence_claims_are_detected(text):
         "Il ne faut pas dépasser 1,5 °C.",
         "Global emissions do not fall fast enough.",
         "Le rapport précise que les émissions ont baissé de 32 %.",
+        "The 1.5 °C limit is not reached in this scenario.",  # a passive about the world
+        "Coal demand is not expected to fall before 2030.",
     ],
 )
 def test_negations_about_the_world_are_allowed(text):

@@ -70,6 +70,7 @@ class Settings(BaseSettings):
 
     # Document search (RAG)
     rag_index_dir: Path = Path("data/index")
+    rag_raw_dir: Path = Path("data/raw")  # the corpus PDFs (the agent can translate them)
     corpus_path: Path = Path("data/corpus.json")  # titles, URLs, summary pages
     # Qdrant: None = embedded on disk in <rag_index_dir>/qdrant (no server);
     # "http://qdrant:6333" = the docker-compose service; ":memory:" = tests.
@@ -86,9 +87,23 @@ class Settings(BaseSettings):
 
     # Agent (LangGraph)
     agent_confirm_pages: int = 50  # longer PDFs: the agent asks before translating
-    # The supervisor's model (understands the request, judges the answers); empty:
-    # the same model as the tools (LLM_MODEL).
+    # The supervisor (understands the request, judges the answers). "same": the tools'
+    # provider, with AGENT_MODEL if set; "vertex": Gemini on Vertex AI, signed in with
+    # Google's application default credentials (no key in .env).
+    agent_provider: Literal["same", "vertex"] = "same"
     agent_model: str | None = None
+    agent_max_calls: int = 40  # supervisor calls per session: a cost guard (0 = no limit)
+    agent_max_steps: int = 5  # steps of one request ("traduis … puis …"); more are cut
+    agent_max_calls_per_request: int = 12  # the API's cost guard, per request
+    # A shared model (Gemini on Vertex AI) answers 429 when it is busy: retry this many
+    # more times, with growing pauses (5, 10, 20 s...), before giving up.
+    agent_rate_limit_retries: int = 3
+    # One JSON per request (plan, nodes, durations, cost); None: not saved.
+    agent_trajectories_dir: Path | None = Path("data/trajectories")
+    agent_price_in_usd: float | None = None  # per 1M tokens, for the cost estimate
+    agent_price_out_usd: float | None = None
+    vertex_project: str | None = None
+    vertex_location: str = "global"
 
     # API server
     max_upload_mb: int = 20
@@ -130,6 +145,20 @@ class Settings(BaseSettings):
             name = f"{self.llm_provider.upper()}_API_KEY or LLM_API_KEY"
             raise RuntimeError(f"{name} is not set (put it in .env, see .env.example)")
         return key
+
+    @property
+    def vertex_base_url(self) -> str:
+        """Vertex AI's OpenAI-compatible endpoint for VERTEX_PROJECT."""
+        if not self.vertex_project:
+            raise RuntimeError("VERTEX_PROJECT is not set (see .env.example)")
+        location = self.vertex_location
+        host = "aiplatform.googleapis.com"
+        if location != "global":
+            host = f"{location}-{host}"
+        return (
+            f"https://{host}/v1/projects/{self.vertex_project}/locations/{location}"
+            "/endpoints/openapi"
+        )
 
     @property
     def mistral_key(self) -> SecretStr:

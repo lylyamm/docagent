@@ -4,6 +4,8 @@
   the result and compare original and translation page by page.
 - Ask: a question about the indexed reports, answered with its sources and the
   sentences that prove it (POST /v1/ask).
+- Assistant: any request to the agent (POST /v1/agent): its plan, each step as soon
+  as it is done, its questions (yes / no), and the details of the run.
 
 Run:  uv run --group front streamlit run front/app.py
 (the API must be running; DOCAGENT_API_URL defaults to http://localhost:8000)
@@ -32,6 +34,26 @@ EXAMPLES = [
     "Combien d'argent sera investi dans les centres de données en 2025 ?",
     "Qui a gagné la Coupe du monde de football 2018 ?",
 ]
+
+AGENT_EXAMPLES = {
+    "Summary + comparison": (
+        "Résume le rapport du HCC puis compare-le avec le GIEC sur les puits de carbone"
+    ),
+    "Translate then ask": (
+        "Traduis le résumé pour décideurs de l'IPCC en français puis dis-moi de combien "
+        "la température a augmenté depuis 1850"
+    ),
+    "Question": "Que dit le HCC sur les émissions des transports en 2024 ?",
+    "Out of scope": "Quel temps fera-t-il demain ?",
+}
+ROUTES = {
+    "question": "question",
+    "summarize": "summary",
+    "compare": "comparison",
+    "translate": "translation",
+    "clarify": "clarification",
+    "out_of_scope": "out of scope",
+}
 
 st.set_page_config(page_title="DocAgent", page_icon="📄", layout="wide")
 st.title("DocAgent · climate & energy reports")
@@ -240,8 +262,161 @@ def questions_tab(health: dict | None) -> None:
                 st.markdown(f"**{past['question']}**  \n{past.get('answer', past.get('error'))}")
 
 
-translate, questions = st.tabs(["Translate a PDF", "Ask the reports"])
+def agent_call(method: str, path: str, **kwargs) -> dict:
+    """An agent endpoint. A refused call comes back as {"api_error": ...}: a run has
+    its own "error" field, set when the run itself failed."""
+    try:
+        response = httpx.request(method, f"{API_URL}{path}", timeout=30, **kwargs)
+    except httpx.HTTPError as exc:
+        return {"api_error": f"API unreachable: {exc}"}
+    if response.status_code >= 400:
+        return {"api_error": f"{response.status_code}: {response.json().get('detail')}"}
+    return response.json()
+
+
+def as_markdown(text: str) -> str:
+    """The agent's plain text as Markdown: a line after a list ("1 point removed…")
+    starts its own paragraph instead of joining the last item."""
+    lines: list[str] = []
+    for line in text.split("\n"):
+        if lines and lines[-1].lstrip().startswith("- ") and not line.lstrip().startswith("- "):
+            lines.append("")
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def plan_line(i: int, plan: dict, run: dict) -> str:
+    """'1. summary · hcc-ra-2025 — done' (or running / waiting)."""
+    what = ROUTES.get(plan["route"], plan["route"])
+    about = ", ".join(plan["doc_ids"]) or plan.get("path") or plan.get("question") or ""
+    done = len(run["sections"])
+    if i < done:
+        state = "✅ done"
+    elif i == done and run["status"] in ("queued", "running"):
+        state = "⏳ running…"
+    elif i == done and run["status"] == "needs_confirmation":
+        state = "❓ waiting for your answer"
+    elif run["status"] == "done":
+        state = "⏭️ not done"
+    else:
+        state = "· waiting"
+    return f"{i + 1}. **{what}**" + (f" · {about}" if about else "") + f" — {state}"
+
+
+def show_run(run: dict) -> None:
+    plans = run["plans"]
+    if plans:
+        st.markdown("**Plan**  \n" + "  \n".join(plan_line(i, p, run) for i, p in enumerate(plans)))
+    elif run["status"] in ("queued", "running"):
+        st.info("Reading your request…")
+
+    if run["status"] == "done" and (len(plans) <= 1 or not run["sections"]):
+        st.markdown(as_markdown(run["message"]))  # one step, or the request itself failed
+    else:
+        for i, section in enumerate(run["sections"]):
+            label = ROUTES.get(plans[i]["route"], "") if i < len(plans) else ""
+            st.markdown(f"#### Step {i + 1}/{len(plans)}: {label}")
+            st.markdown(as_markdown(section))
+        if run["status"] == "done" and len(run["sections"]) < len(plans):
+            st.markdown(run["message"].rsplit("\n\n", 1)[-1])  # why it stopped
+    if run["status"] == "failed":
+        st.error(f"The run failed: {run['error']}")
+
+    with st.expander("Details (trajectory)"):
+        cols = st.columns(4)
+        cols[0].metric("Duration", f"{run['duration_s']:.0f} s")
+        cols[1].metric("Supervisor calls", run["supervisor_calls"])
+        cost = run["cost_usd"]
+        cols[2].metric("Supervisor cost", "—" if cost is None else f"${cost:.4f}")
+        cols[3].metric("Steps", f"{len(run['sections'])}/{len(plans) or '?'}")
+
+        def cell(value) -> str:
+            return "" if value is None else str(value)
+
+        rows = []
+        for n in run["nodes"]:
+            not_reviewed = n["node"] == "judge" and n["judged"] is False
+            rows.append(
+                {
+                    "node": n["node"],
+                    "seconds": n["duration_s"],
+                    "tool": n["tool"] or "",
+                    "passages": cell(n["passages"]),
+                    "points": cell(n["items"]),
+                    "kept by judge": "not reviewed" if not_reviewed else cell(n["kept"]),
+                    "removed by judge": "not reviewed" if not_reviewed else cell(n["removed"]),
+                    "rejected by code": cell(len(n["rejected"] or []) or None),
+                }
+            )
+        if rows:
+            st.dataframe(rows, hide_index=True, width="stretch")
+        rejected = [r for n in run["nodes"] for r in (n["rejected"] or [])]
+        if rejected:
+            st.caption("Rejected by the code checks:  \n" + "  \n".join(f"- {r}" for r in rejected))
+        if run.get("trajectory_file"):
+            st.caption(f"Trajectory saved: {run['trajectory_file']}")
+
+
+def send_agent_request() -> None:
+    request = st.session_state.get("agent_request", "").strip()
+    if len(request) < 2:
+        return
+    run = agent_call("POST", "/v1/agent", json={"request": request})
+    if "api_error" in run:
+        st.session_state["agent_error"] = run["api_error"]
+    else:
+        st.session_state["agent_run"] = run["run_id"]
+
+
+def assistant_tab(health: dict | None) -> None:
+    st.write(
+        "Ask the agent anything about the reports: a question, a summary, a comparison, a "
+        "translation, or several in a row (« résume … puis compare … »). Each step is "
+        "checked by code, then reviewed by the supervisor before it is shown."
+    )
+    cols = st.columns(len(AGENT_EXAMPLES))
+    for col, (label, example) in zip(cols, AGENT_EXAMPLES.items(), strict=True):
+        if col.button(label, width="stretch", key=f"agent-example:{label}"):
+            st.session_state["agent_request"] = example
+    with st.form("agent"):
+        st.text_area("Request", key="agent_request", max_chars=1000, height=80)
+        # Sent from the button's callback: it runs once per click. Read from the button's
+        # return value instead, the request was sent twice, the page reloading itself
+        # (to follow the run) while the click was still counted.
+        st.form_submit_button(
+            "Send", type="primary", disabled=health is None, on_click=send_agent_request
+        )
+    if error := st.session_state.pop("agent_error", None):
+        st.error(error)
+
+    run_id = st.session_state.get("agent_run")
+    if not run_id:
+        return
+    run = agent_call("GET", f"/v1/agent/{run_id}")
+    if "api_error" in run:
+        st.error(run["api_error"])
+        return
+    show_run(run)
+
+    if run["status"] == "needs_confirmation":
+        st.warning(f"The agent asks: {run['question']}")
+        yes, no = st.columns(2)
+        for col, answer in ((yes, "oui"), (no, "non")):
+            if col.button(answer.capitalize(), width="stretch", key=f"resume:{answer}"):
+                resumed = agent_call("POST", f"/v1/agent/{run_id}/resume", json={"answer": answer})
+                if "api_error" in resumed:
+                    st.error(resumed["api_error"])
+                else:
+                    st.rerun()
+    elif run["status"] in ("queued", "running"):
+        time.sleep(POLL_SECONDS)  # follow the run: the page reloads until it ends or asks
+        st.rerun()
+
+
+translate, questions, assistant = st.tabs(["Translate a PDF", "Ask the reports", "Assistant"])
 with translate:
     translation_tab(health)
 with questions:
     questions_tab(health)
+with assistant:
+    assistant_tab(health)

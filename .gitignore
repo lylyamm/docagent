@@ -33,3 +33,6 @@ data/index/
 
 # Private design notes (kept locally, not published)
 DECISIONS.md
+
+# Agent trajectories (one JSON per request: plan, nodes, durations, cost)
+data/trajectories/

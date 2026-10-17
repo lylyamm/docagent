@@ -165,6 +165,14 @@ def test_refusal_gives_the_not_found_message_in_the_question_language():
     assert answer.answer == NOT_FOUND["fr"]
 
 
+def test_a_short_french_question_gets_a_french_refusal():
+    from docagent.rag.answer import question_language
+
+    assert question_language("Que prévoit le rapport 1 ?") == "fr"  # too short to classify
+    assert question_language("What about 2030?") == "en"
+    assert question_language("SSP1-1.9?") == "en"  # no clue: English
+
+
 def test_an_answer_without_verified_evidence_is_not_shown():
     invented = {"n": 1, "quote": "Global mean sea level increased by 0.35 m since 1901"}
     for evidence in ([], [invented]):
@@ -193,6 +201,28 @@ def test_a_refusal_says_why_in_the_log(caplog):
     with pytest.raises(ChatError, match="HTTP 429: Service tier capacity exceeded"):
         Answerer(searcher(), client).ask("Investment in data centres in 2025?")
     assert "HTTP 429: Service tier capacity exceeded" in caplog.text
+
+
+def test_a_busy_model_gets_more_patience_than_other_failures():
+    good = {"answerable": False, "answer": "", "evidence": []}
+    busy = [httpx.Response(429, json={"message": "Resource exhausted."}) for _ in range(4)]
+    client, sent = chat(*busy, good)  # max_retries=2: 4 refusals would be too many...
+    client.rate_limit_retries = 3  # ...but 429 has its own allowance
+    Answerer(searcher(), client).ask("Investment in data centres in 2025?")
+    assert len(sent) == 5 and (client.requests, client.answered) == (5, 1)
+
+    client, _ = chat(*(httpx.Response(429) for _ in range(6)))
+    client.rate_limit_retries = 3
+    with pytest.raises(ChatError, match="after 6 attempts"):  # 3 + 2 retries, then it stops
+        Answerer(searcher(), client).ask("Investment in data centres in 2025?")
+
+
+def test_the_cost_guard_counts_answered_requests_only():
+    good = {"answerable": False, "answer": "", "evidence": []}
+    client, sent = chat(httpx.Response(429), good)
+    client.max_requests, client.rate_limit_retries = 1, 2
+    Answerer(searcher(), client).ask("Investment in data centres in 2025?")
+    assert len(sent) == 2 and client.answered == 1  # the refusal was not billed
 
 
 def test_chat_gives_up_after_the_retries():

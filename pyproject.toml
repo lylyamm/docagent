@@ -23,6 +23,9 @@ dependencies = [
 local = [
     "sentence-transformers>=3.0",
 ]
+vertex = [
+    "google-auth[requests]>=2.30",
+]
 
 [dependency-groups]
 dev = [
