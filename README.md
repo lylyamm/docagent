@@ -36,6 +36,15 @@ Work with climate and energy reports (IPCC, IEA, French High Council on Climate)
 - **Every run is recorded**: a trajectory (plan, nodes, durations, points removed by the code and by the review, cost) is saved as JSON; the API and the front end show it while the agent works.
 - **Cost guards**: at most 12 supervisor calls per request in the API, a 5-step limit enforced by code, and a monthly budget on the cloud project.
 
+![The Assistant tab: a two-step request (summary of the HCC report, then a comparison with the IPCC on carbon sinks), its plan, each step's result and the points the review removed, with the reason](docs/images/agent_assistant.png)
+
+<details>
+<summary>The same run's details: duration, supervisor calls and cost, each node, and the points rejected by the code checks</summary>
+
+![Run details of the Assistant tab: 59 s, 3 supervisor calls, $0.0088, a table of the nodes with their duration, passages read, points kept and removed by the review, and the points rejected by code with their reason](docs/images/agent_details.png)
+
+</details>
+
 **All three**
 
 - **Any OpenAI-compatible LLM**: Mistral, Groq, OpenRouter or a local Ollama model, chosen in `.env`.
