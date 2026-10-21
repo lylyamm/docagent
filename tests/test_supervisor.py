@@ -77,6 +77,7 @@ def test_a_question_is_answered_with_sources_then_reviewed(tmp_path):
     assert 'Write "problem" in French' in sent["agent"][1]["messages"][0]["content"]
     assert "never ask which" in system  # router-v2
     assert "at most 5" in system and '{"steps": [' in system  # router-v3
+    assert "Never ask which version" in system  # router-v4: a report in two versions
 
 
 def test_an_answer_the_judge_finds_unfaithful_is_not_shown(tmp_path):
@@ -129,6 +130,24 @@ def test_a_comparison_goes_through_the_same_review(tmp_path):
         "- **Chiffres**\n    - Report 2: 0.20 m [1].\n    - Report 3: 580 milliards [2].\n"
         "    - (Report 2, p. 12; Report 3, p. 13)"
     ) in state["message"]
+
+
+def test_the_judge_reads_what_the_reports_say_not_the_note_on_what_is_missing(tmp_path):
+    """An "only_in" point ends with a note written by code ("Rien sur ce point dans le
+    passage consulté de Report 2."). Judged, it was removed as "in no passage"."""
+    side_b = {"report": "B", "says": "580 milliards [2].", "evidence": [{"n": 2, "quote": DATA}]}
+    reply = {"points": [{"kind": "only_in", "aspect": "Centres de données", "sides": [side_b]}]}
+    graph, sent = agent(
+        tmp_path,
+        {"route": "compare", "doc_ids": ["d2", "d3"], "topic": "centres de données"},
+        judge=[FAITHFUL],
+        tool=[reply],
+    )
+    state, _ = ask(graph, "Compare les rapports 2 et 3")
+    judged = sent["agent"][1]["messages"][1]["content"]
+    assert "Statement: Centres de données. Report 3: 580 milliards [2]." in judged
+    assert "Rien sur ce point" not in judged
+    assert "    - Rien sur ce point dans le passage consulté de Report 2." in state["message"]
 
 
 def test_a_page_cited_twice_is_shown_once():

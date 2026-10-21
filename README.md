@@ -1,15 +1,14 @@
 # DocAgent
 
-Work with climate and energy reports (IPCC, IEA, French High Council on Climate) in two ways:
+Work with climate and energy reports (IPCC, IEA, French High Council on Climate) in three ways:
 
 - **Translate** a PDF **without breaking its layout**: charts, colours, columns, footnotes and styles stay where they were. The PDF is split into text blocks, translated page by page by an LLM with validated JSON output, and each block is rewritten in place.
 - **Ask the reports** a question in French or English and get an answer **with its sources**: report, page, and the sentence that proves it, checked by code before the answer is shown. When the reports do not say it, DocAgent says so instead of guessing.
-
-Next step: a LangGraph agent that combines translation and search on the same corpus.
+- **Hand a request to an agent** (LangGraph): « résume le rapport du HCC puis compare-le avec le GIEC sur les puits de carbone ». A supervisor plans the steps, runs them with the tools above, and has every summary, comparison and answer reviewed before it is shown.
 
 ![IPCC Summary for Policymakers, page 6: original on the left, DocAgent's French translation on the right](docs/images/giec_chart.png)
 
-**Status:** v0.2, translator + question answering (RAG). Agent in progress (see [Roadmap](#roadmap)).
+**Status:** v0.3, translator + question answering (RAG) + LangGraph agent. Agent evaluated (routing, review, whole runs); the ingestion agent is next (see [Roadmap](#roadmap)).
 
 ## What it does
 
@@ -28,10 +27,20 @@ Next step: a LangGraph agent that combines translation and search on the same co
 - **Refuses when the reports do not answer**: off-topic and near-topic questions get "not found" rather than a plausible guess.
 - **Measured**: retrieval and answers are evaluated on question sets with known answer pages, including a test set kept aside (see [Results](#results)).
 
-**Both**
+**Agent (LangGraph)**
+
+- **Understands a request and plans it**: one step (a question, a summary, a comparison, a translation) or up to 5 in order (« traduis … puis dis-moi … »). The plan comes from the supervisor's model as JSON; the code checks every step (reports exist, a summary has one report, a comparison 2 or 3) and turns what does not hold into a clarifying question.
+- **Summaries and comparisons checked like answers**: a summary starts from the authors' own summary pages; a comparison has one side per report, and the code checks that each side quotes only its own report and never claims what a report does not contain.
+- **A stronger model reviews the result**: after each step, the supervisor (Gemini 2.5 Pro on Vertex AI) reads every point next to its passages and removes the ones that do not say what the sources say. It can only remove, never add.
+- **Asks before long work**: a translation of more than 50 pages pauses the agent (`interrupt()`) until the user says yes or no.
+- **Every run is recorded**: a trajectory (plan, nodes, durations, points removed by the code and by the review, cost) is saved as JSON; the API and the front end show it while the agent works.
+- **Cost guards**: at most 12 supervisor calls per request in the API, a 5-step limit enforced by code, and a monthly budget on the cloud project.
+
+**All three**
 
 - **Any OpenAI-compatible LLM**: Mistral, Groq, OpenRouter or a local Ollama model, chosen in `.env`.
-- **API + web front end + Docker**: FastAPI (asynchronous translation jobs, `/v1/ask`), a Streamlit front end with a side-by-side preview and an "Ask the reports" tab, Qdrant as a service; `docker compose up` runs the whole demo.
+- **A separate provider for the agent's supervisor** (`AGENT_PROVIDER=vertex`: Gemini on Vertex AI, pay-as-you-go, signed in with Google credentials, no key in `.env`).
+- **API + web front end + Docker**: FastAPI (asynchronous translation jobs, `/v1/ask`, `/v1/agent`), a Streamlit front end with a side-by-side preview, an "Ask the reports" tab and an "Assistant" tab, Qdrant as a service; `docker compose up` runs the translation and question demo.
 
 ## Results
 
@@ -76,6 +85,47 @@ The 3 questions not answered were refusals: two whose page the search missed (bo
 | A prompt change | "Translate units" turned 15.6 Mt into "15.6 billion tonnes": reverted, units are now copied |
 
 Every run is in [evals/rag_results.md](evals/rag_results.md) and every answer in [evals/answers/](evals/answers/).
+
+### The agent
+
+Supervisor `google/gemini-2.5-pro` on Vertex AI, tools on `open-mistral-nemo`. Three evaluations, each one script ([evals/README.md](evals/README.md)):
+
+**Routing**: is each request turned into the right plan? 25 requests in 8 kinds (question, summary, comparison, translation, several steps, ambiguous, unclear, out of scope), the router alone, each played twice.
+
+| Measure | router-v3 (2 runs) | router-v4 |
+| --- | --- | --- |
+| Right plan | 49 / 50, 49 / 50 | **50 / 50** |
+| Same plan on both runs | 21 / 25, 22 / 25 | **25 / 25** |
+| Router call, median | 9.9 s, 7.6 s | 5.9 s |
+| Cost per request | $0.002 | $0.002 |
+
+v3's only error (s3, in 2 runs out of 4) and most of its changes came from a report in the corpus twice (the IEA WEO in English, its summary in French): v3 took one or the other, and once asked the user which. v4 takes the version in the request's language, since a summary's topic is searched in the report and the search is weaker across languages. That rule was written after reading v3's errors on these same 25 requests, so v4's score is optimistic.
+
+**Review**: does the judge remove what is wrong and keep what is right? Real passages of the reports, each with a faithful statement and a trap that keeps every figure but changes the meaning (two periods swapped, the ocean and land sinks swapped, a carbon budget "respected" instead of exceeded, a record called a fall): the checks in code let a trap through, only the review can catch it. Each statement judged alone, 3 times.
+
+| Measure | judge-v2 |
+| --- | --- |
+| Traps removed | **15 / 15** |
+| Faithful statements removed | **0 / 15** |
+| Same verdict on the 3 runs | 10 / 11 statements |
+| A nuance left out ("−27 %" without "compared with no climate change") | removed 2 times out of 3 |
+
+The one statement judged differently is the borderline one, and the review's reason for removing it holds: without the comparison, a relative drop reads as an observed loss.
+
+**Whole runs**: 4 requests through router, tools and review ([scripts/agent_eval_runs.py](scripts/agent_eval_runs.py)), with the final code (21 October 2026).
+
+| Request | Steps | Duration | Supervisor cost | Points kept by the review |
+| --- | --- | --- | --- | --- |
+| Que dit le HCC sur les émissions des transports en 2024 ? | question | 55 s | $0.004 | 0 / 1 |
+| Résume le rapport annuel 2025 du HCC | summary | 55 s | $0.006 | 3 / 4 |
+| Compare l'AIE et le GIEC sur les trajectoires compatibles avec 1,5 °C | comparison | 41 s | $0.005 | 1 / 2 |
+| Résume le rapport du HCC puis compare-le avec le GIEC sur les puits de carbone | summary, comparison | 86 s | $0.009 | 1 / 3, 1 / 2 |
+
+- **The tools' model is the weak link**: the review removed 6 of the 12 points and answers the tools wrote, each with a named error; those checked against the passages were real (a date of one report given to the other, "among the 10 wettest years" turned into "record rainfall", causes of road transport given to the whole sector). The same question was answered, refused and removed in three runs.
+- **Time is the supervisor's**: 69 to 83 % of each request is Gemini's reasoning (plan and review). In the question above, the search took 0.1 s and the tools' model 3.4 s; the rest of the tool time (14 s) was loading the index in a new process.
+- Cost is the supervisor only; the tools' model is billed apart (Mistral's free tier here).
+
+Every run is in [evals/agent_results.md](evals/agent_results.md), every plan and verdict in [evals/agent_runs/](evals/agent_runs/).
 
 ## Quickstart with Docker
 
@@ -122,7 +172,7 @@ Requires [uv](https://docs.astral.sh/uv/).
 
 ```bash
 uv sync
-uv run pytest                                                  # 164 tests, no network, no key
+uv run pytest                                                  # 254 tests, no network, no key
 
 uv run python scripts/rebuild.py                               # fake translation of every sample + checks
 uv run python scripts/translate.py data/samples/giec_spm_en.pdf --pages 1 2   # real LLM translation
@@ -155,6 +205,28 @@ uv run python scripts/rag_eval_answers.py                      # answers: cited 
 
 Locally the vector store runs embedded (a folder, no server): one program at a time can open it, so stop the API before running the scripts. In Docker it is the `qdrant` service, which has no such limit.
 
+### The agent
+
+The agent uses the search index above (tools on `LLM_MODEL`) and a supervisor model. With Gemini on Vertex AI:
+
+1. A Google Cloud project with billing and the Vertex AI API enabled (`gcloud services enable aiplatform.googleapis.com`), and a budget alert.
+2. Sign in once on the machine, no key stored:
+
+```bash
+gcloud auth application-default login
+gcloud auth application-default set-quota-project <project id>
+```
+
+3. In `.env`: `AGENT_PROVIDER=vertex`, `VERTEX_PROJECT=<project id>`, `AGENT_MODEL=google/gemini-2.5-pro` (and, for the cost estimate, `AGENT_PRICE_IN_USD` / `AGENT_PRICE_OUT_USD`). Without them, the supervisor uses the tools' provider (`AGENT_MODEL` alone picks another model there).
+
+```bash
+uv sync --extra local --extra vertex
+uv run python scripts/agent_chat.py --show-plan                # talk to the agent in the terminal
+uv run python scripts/agent_chat.py --fake-translator          # same, translations without LLM
+```
+
+Or start the API and the front end (above) and open the **Assistant** tab. Each request is saved as a trajectory in `data/trajectories/`.
+
 ## API
 
 | Method | Path | |
@@ -164,6 +236,9 @@ Locally the vector store runs embedded (a folder, no server): one program at a t
 | `GET` | `/v1/jobs/{job_id}` | status (`queued`, `running`, `done`, `failed`), page progress, summary |
 | `GET` | `/v1/jobs/{job_id}/download` | translated PDF |
 | `POST` | `/v1/ask` | JSON `{"question": ..., "top_k": 5}` → answer, sources (report, page, verified quotes), timings |
+| `POST` | `/v1/agent` | JSON `{"request": ...}` → `202` run: the agent works in the background |
+| `GET` | `/v1/agent/{run_id}` | status (`queued`, `running`, `needs_confirmation`, `done`, `failed`), plan, nodes done, parts of the message already written, then the message and the run's details |
+| `POST` | `/v1/agent/{run_id}/resume` | JSON `{"answer": "oui"}` → answer the agent's question (a long translation) and continue |
 | `GET` | `/health` | liveness and configured LLM |
 
 ## How it works
@@ -191,6 +266,36 @@ question ──► embed (e5) ──► Qdrant: 20 nearest passages ──┐
 7. **Answer** (`answer.py`): numbered passages, JSON answer with evidence, verification in code, and the reasons of each refusal kept for evaluation.
 8. **Evaluate** (`evaluation.py`, `scripts/rag_eval*.py`): hit@k and MRR for the search, paired tests (McNemar, sign test) to compare two systems on the same questions, answer-level metrics, and a test set kept aside ([evals/README.md](evals/README.md)).
 
+**Agent** (`src/docagent/agent/`)
+
+```
+                   ┌──────────────┐
+  request ───────► │  understand  │  supervisor model: the plan (1 to 5 steps), checked by code
+                   └──────┬───────┘
+                          ▼
+          ┌──────────── for each step ─────────────┐
+          │                                        │
+          │  question / summarize / compare        │  translate (sub-graph:
+          │      tool (search + LLM)               │  inspect → confirm? → translate)
+          │      + checks in code                  │      │  pauses for a yes/no
+          │            │                           │      │  beyond 50 pages
+          │            ▼                           │      │
+          │  judge: supervisor model, removes      │      │
+          │  points their sources do not support   │      │
+          │            │                           │      │
+          │            ▼                           │      ▼
+          │        next_step ◄─────────────────────┼──────┘
+          └────────────┬───────────────────────────┘   a step that fails stops the chain
+                       ▼
+                    respond: one part per step, written by code
+```
+
+9. **Tools** (`tools.py`, `grounded.py`): the translator and the search above, plus a summary (from the report's own summary pages, or the passages most relevant to a focus) and a comparison (each report searched on its own, one side per report, attribution and absence claims checked in code). Points that fail a check are dropped one by one, with the reason kept.
+10. **Graph** (`supervisor.py`, `graph_translation.py`, `checkpoint.py`): a typed state, branches chosen by code from the state, the translation as a sub-graph whose `interrupt()` pauses the whole agent, an in-memory checkpointer keyed by `thread_id` so a paused run resumes where it stopped.
+11. **Review** (`judge.py`): each point is read next to its quotes and whole passages; only a nameable error removes it (a figure attached to something else, a fact in no passage, a contradiction, the wrong report), not an omission or a paraphrase. If the review fails, the points are kept and marked "not reviewed".
+12. **Runs and trajectories** (`runs.py`, `trajectory.py`): the graph is streamed node by node; each node's duration, tool, passages read, points rejected by code and removed by review are recorded, and for a question the reason of a refusal and where its time went (search, model, loading); the API runs requests one at a time in a worker thread, each with its own supervisor call budget.
+13. **Evaluate** (`evaluation.py`, `scripts/agent_eval_*.py`): the router alone on 25 requests with the plans each accepts; the review alone on faithful statements and traps built from real passages; whole runs for time and cost.
+
 ## Limitations
 
 - Vertical text (rotated axis labels) is not translated yet.
@@ -198,6 +303,7 @@ question ──► embed (e5) ──► Qdrant: 20 nearest passages ──┐
 - LaTeX formulas and drop caps in scientific papers still cause a few overlaps.
 - Scanned PDFs (images without text) need OCR, not supported.
 - A small free model makes occasional translation mistakes; larger models will be compared in phase 6.
+- Agent: 40 to 90 seconds per request, mostly the supervisor's reasoning; Gemini on Vertex AI is a shared model and sometimes answers "resource exhausted" (retried with growing pauses). The small tools' model writes points the review has to remove (about half in the whole runs), so a request can end with little kept; a stronger tools' model is the next lever. The evaluation sets are small (25 requests, 11 statements, 4 runs), and the routing set has been used to tune the router. Runs are kept in memory (one API process, one request at a time); the agent is not in the Docker image yet (it needs Google credentials).
 - Questions: the evaluation sets are small (24 and 15 questions), so differences of one or two questions are not significant. Cross-lingual search relies on the dense model alone, since BM25 needs shared words. The answer checks catch invented quotes and figures, not a true sentence taken from the wrong passage. Indexing with a local model takes about 45 min on a laptop CPU.
 
 ## Roadmap
@@ -205,7 +311,7 @@ question ──► embed (e5) ──► Qdrant: 20 nearest passages ──┐
 1. ~~**PDF core**: extraction and in-place reconstruction with a fake translation~~
 2. ~~**Translator v1**: LLM translation, FastAPI, Docker, web front end~~
 3. ~~**RAG**: hybrid search with page-level citations, verified answers, evaluation, Qdrant as a Docker service~~
-4. **Agent**: LangGraph agent orchestrating translate / search / answer / verify, with MCP tools (files, fetch)
+4. **Agent**: ~~LangGraph supervisor planning translate / ask / summarize / compare steps, reviewed results, API and front end, evaluation of the routing, the review and whole runs~~; ingestion agent with MCP tools (fetch) to keep the corpus up to date
 5. **Industrialization**: CI/CD, cloud deployment, tracing and cost monitoring
 6. **Evaluation**: translation benchmark (COMET, chrF) against official IPCC French versions
 
@@ -215,12 +321,14 @@ question ──► embed (e5) ──► Qdrant: 20 nearest passages ──┐
 src/docagent/pdf/        # extraction, reconstruction, checks, language detection
 src/docagent/translate/  # translators (fake, OpenAI-compatible LLM), cache, glossary, tag repair
 src/docagent/rag/        # passages, BM25, embeddings, Qdrant, fusion, search, answers, metrics
-src/docagent/chat.py     # small client for JSON answers from the LLM
-src/docagent/api/        # FastAPI app: translation jobs, questions
-front/app.py             # Streamlit front end (translate, ask)
-scripts/                 # translation, indexing, search, question, evaluation and vector copy scripts
+src/docagent/agent/      # LangGraph agent: tools, supervisor, review, translation sub-graph, runs, trajectories
+src/docagent/chat.py     # small client for JSON answers from the LLM (fixed key or refreshed token)
+src/docagent/gcp.py      # Google sign-in for Vertex AI (application default credentials)
+src/docagent/api/        # FastAPI app: translation jobs, questions, agent runs
+front/app.py             # Streamlit front end (translate, ask, assistant)
+scripts/                 # translation, indexing, search, question, agent, evaluation and vector copy scripts
 tests/                   # pytest suite (no network)
-evals/                   # question sets, results, saved answers
+evals/                   # question sets, agent requests and traps, results, saved answers and plans
 data/samples/            # public PDF excerpts (see data/SOURCES.md)
 data/corpus.json         # the reports indexed for questions, with their public links
 data/glossary_en_fr.json # imposed terminology (official IPCC French)

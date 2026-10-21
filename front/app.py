@@ -353,6 +353,9 @@ def show_run(run: dict) -> None:
         rejected = [r for n in run["nodes"] for r in (n["rejected"] or [])]
         if rejected:
             st.caption("Rejected by the code checks:  \n" + "  \n".join(f"- {r}" for r in rejected))
+        for n in run["nodes"]:
+            if n.get("refusal"):
+                st.caption(f"Question not answered: {n['refusal']}")
         if run.get("trajectory_file"):
             st.caption(f"Trajectory saved: {run['trajectory_file']}")
 

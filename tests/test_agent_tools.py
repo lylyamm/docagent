@@ -469,3 +469,19 @@ def test_a_side_with_an_absence_claim_rejects_the_point(tmp_path):
     assert result.points == []
     assert result.rejected_points[0].reason == 'side A: absence claim ("ne précise pas")'
     assert 'never a "difference"' in sent[0]["messages"][0]["content"]
+
+
+def test_a_bare_list_of_points_is_read_as_the_points(tmp_path):
+    """nemo sometimes answers ``[...]`` instead of ``{"points": [...]}``: on one
+    comparison, 3 times in a row, and the request failed although the points were fine."""
+    from docagent.agent.grounded import LLMComparison, LLMPoints
+
+    point = {"text": "La mer a monté de 0.20 m [1].", "evidence": [{"n": 1, "quote": SEA}]}
+    side = {"report": "A", "says": "0.20 m [1].", "evidence": [{"n": 1, "quote": SEA}]}
+    compared = {"kind": "only_in", "aspect": "Mer", "sides": [side]}
+    client, sent = chat([compared], [point])
+    message = [{"role": "user", "content": "x"}]
+    assert client.complete_json(message, LLMComparison).points[0].aspect == "Mer"
+    assert client.complete_json(message, LLMPoints).points[0].text.startswith("La mer")
+    assert len(sent) == 2  # read at once, no retry
+    assert LLMPoints.model_validate({"points": [point]}).points[0].evidence[0].n == 1

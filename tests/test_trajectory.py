@@ -44,7 +44,8 @@ def test_a_two_step_request_is_recorded_node_by_node(tmp_path):
     summarize, judge1, question, judge2 = t.nodes[1], t.nodes[2], t.nodes[4], t.nodes[5]
     assert (summarize.tool, summarize.items) == ("summarize_document", 2)
     assert summarize.passages >= 1 and summarize.rejected == []  # both points passed the code
-    assert question.passages == 1
+    assert question.passages == 1 and question.refusal is None
+    assert {"search_s", "llm_s", "llm_requests", "other_s"} <= set(question.timings)
     assert (judge1.kept, judge1.removed, judge1.judged) == (1, 1, True)
     assert (question.tool, question.ok, judge2.kept, judge2.removed) == ("ask", True, 1, 0)
     assert [p["route"] for p in t.plans] == ["summarize", "question"]
@@ -86,3 +87,27 @@ def test_a_pause_is_counted_and_the_wait_is_not(tmp_path):
     assert t.nodes[1].ok is False  # cancelled
     assert t.duration_s == 2.9  # 1.5 before the pause + 1.4 after it, not the 98.5 s wait
     assert t.message.startswith("Traduction annulée")
+
+
+def test_a_refused_question_says_why():
+    from docagent.agent.trajectory import refusal_reason
+    from docagent.rag import Answer
+
+    base = {"question": "q", "answer": "Non trouvé.", "sources": [], "model": "m"}
+    answered = Answer(**{**base, "answer": "34 %"}, answerable=True, retrieved=["p1"])
+    assert refusal_reason(answered) is None
+    cases = [
+        ({"retrieved": []}, "no passage found"),
+        ({"model_answerable": False}, "the model said the passages do not answer"),
+        (
+            {"model_answerable": True, "unsupported_numbers": ["120"]},
+            "figures not in the quotes: 120",
+        ),
+        (
+            {"model_answerable": True, "rejected_quotes": ["une phrase inventée"]},
+            "quotes not found in their passage: une phrase inventée",
+        ),
+    ]
+    for diagnostics, reason in cases:
+        answer = Answer(**base, answerable=False, **({"retrieved": ["p1"]} | diagnostics))
+        assert refusal_reason(answer) == reason

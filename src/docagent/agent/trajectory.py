@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 
 from ..chat import ChatClient
 from ..config import Settings
+from ..rag import Answer
 
 TOOLS = {
     "question": "ask",
@@ -47,6 +48,10 @@ class NodeRecord(BaseModel):
     removed: int | None = None  # judge: items removed
     judged: bool | None = None  # judge: False if the review failed (nothing removed)
     ok: bool | None = None  # question: answered; translate: done
+    refusal: str | None = None  # question not answered: why (the model, or which check)
+    # question: where the time went: search_s, llm_s, llm_requests (more than 1: retries),
+    # other_s (the rest of the node: on the first request, loading the index and models)
+    timings: dict[str, float] | None = None
     error: str | None = None
 
 
@@ -155,6 +160,11 @@ class Recorder:
             record.ok = answer.answerable
             self._items = 1 if answer.answerable else 0
             record.passages = len(answer.retrieved)
+            record.refusal = refusal_reason(answer)
+            timings = dict(answer.timings)
+            spent = timings.get("search_s", 0.0) + timings.get("llm_s", 0.0)
+            timings["other_s"] = round(max(0.0, duration - spent), 3)
+            record.timings = timings
         elif node in ("summarize", "compare"):
             result = update.get("summary") or update.get("comparison")
             self._items = len(result.points) if result is not None else 0
@@ -176,6 +186,27 @@ class Recorder:
         if node == "question":
             record.items = self._items
         self.trajectory.nodes.append(record)
+
+
+def refusal_reason(answer: Answer) -> str | None:
+    """Why a question was not answered, from the answer's diagnostics; None if answered.
+
+    Without it a trajectory only said "not answered": the same question was answered
+    at 18:41 and refused at 23:42 (2026-10-21), and nothing told why.
+    """
+    if answer.answerable:
+        return None
+    if not answer.retrieved:
+        return "no passage found"
+    if answer.model_answerable is False:
+        return "the model said the passages do not answer"
+    if answer.unsupported_numbers:
+        return "figures not in the quotes: " + ", ".join(answer.unsupported_numbers)
+    if answer.rejected_quotes:
+        return "quotes not found in their passage: " + " | ".join(
+            q[:80] for q in answer.rejected_quotes
+        )
+    return "no verified quote"
 
 
 def load(path: str | Path) -> Trajectory:

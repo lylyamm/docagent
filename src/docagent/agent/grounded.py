@@ -14,7 +14,7 @@ figure costs one point, not the whole summary.
 
 import re
 
-from pydantic import BaseModel, Field, computed_field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
 
 from ..rag.answer import (
     Evidence,
@@ -61,10 +61,21 @@ class LLMPoint(BaseModel):
     evidence: list[Evidence] = Field(default_factory=list)
 
 
+def _wrap_bare_list(value: object) -> object:
+    """``[{...}, {...}]`` read as ``{"points": [...]}``: nemo sometimes leaves out the
+    wrapping object (3 times in a row on one comparison), and the points were fine."""
+    return {"points": value} if isinstance(value, list) else value
+
+
 class LLMPoints(BaseModel):
     """What the model must return. Malformed points are dropped, not fatal."""
 
     points: list[LLMPoint] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _bare_list(cls, value: object) -> object:
+        return _wrap_bare_list(value)
 
     @field_validator("points", mode="before")
     @classmethod
@@ -285,6 +296,11 @@ class LLMComparison(BaseModel):
 
     points: list[LLMComparePoint] = Field(default_factory=list)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _bare_list(cls, value: object) -> object:
+        return _wrap_bare_list(value)
+
     @field_validator("points", mode="before")
     @classmethod
     def _usable_points(cls, value: object) -> list:
@@ -328,13 +344,19 @@ class ComparisonPoint(BaseModel):
     sides: list[ComparisonSide]  # the report of each side is set by code
     note: str | None = None  # only_in: what was read of the other reports (by code)
 
+    @property
+    def claims(self) -> str:
+        """What the reports say, as the model wrote it: what the judge reads. The
+        note ("nothing on this in the N passages read of X") is not a claim of the
+        reports but what the code read: judged, it was removed as "in no passage"."""
+        head = f"{self.aspect}. " if self.aspect else ""
+        return head + " ".join(f"{s.title}: {s.says}" for s in self.sides)
+
     @computed_field
     @property
     def text(self) -> str:
         """The point as shown: report names written by code, not by the model."""
-        head = f"{self.aspect}. " if self.aspect else ""
-        body = " ".join(f"{s.title}: {s.says}" for s in self.sides)
-        return head + body + (f" {self.note}" if self.note else "")
+        return self.claims + (f" {self.note}" if self.note else "")
 
 
 def absence_note(lang: str, title: str, n: int) -> str:
