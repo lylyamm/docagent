@@ -74,7 +74,9 @@ def test_a_question_is_answered_with_sources_then_reviewed(tmp_path):
     judged = sent["agent"][1]["messages"][1]["content"]
     assert "[1] Statement: Les transports" in judged and "Quote: Report 1, p. 11" in judged
     assert "Passage: Report 1, p. 11: Le secteur des transports" in judged  # whole passage
-    assert 'Write "problem" in French' in sent["agent"][1]["messages"][0]["content"]
+    judge_system = sent["agent"][1]["messages"][0]["content"]
+    assert 'Write "problem" in French' in judge_system
+    assert "never against what you know" in judge_system  # judge-v3: reports newer than it
     assert "never ask which" in system  # router-v2
     assert "at most 5" in system and '{"steps": [' in system  # router-v3
     assert "Never ask which version" in system  # router-v4: a report in two versions
@@ -280,6 +282,31 @@ def test_vertex_endpoint_and_token():
 
     with pytest.raises(RuntimeError, match="AGENT_MODEL is required"):
         agent_chat_client(settings.model_copy(update={"agent_model": None}), token=lambda: "t")
+
+
+def test_the_tools_model_can_be_on_vertex_too():
+    """TOOLS_PROVIDER=vertex: answers, summaries and comparisons on TOOLS_MODEL (Gemini on
+    Vertex AI); the translator keeps LLM_*. Default: the tools' client is LLM_*."""
+    from docagent.chat import tools_chat_client
+
+    settings = Settings(
+        _env_file=None,
+        mistral_api_key="k",
+        llm_model="open-mistral-nemo",
+        tools_provider="vertex",
+        tools_model="google/gemini-2.5-flash",
+        vertex_project="projetlilia",
+    )
+    client = tools_chat_client(settings, token=lambda: "tok")
+    assert client.model == "google/gemini-2.5-flash"
+    assert client.base_url.endswith("/projects/projetlilia/locations/global/endpoints/openapi")
+    assert (client.temperature, client.max_requests) == (0.0, None)
+    assert client.rate_limit_retries == settings.agent_rate_limit_retries  # busy model: wait
+
+    same = tools_chat_client(settings.model_copy(update={"tools_provider": "same"}))
+    assert (same.model, same.rate_limit_retries) == ("open-mistral-nemo", 0)
+    with pytest.raises(RuntimeError, match="TOOLS_MODEL is required"):
+        tools_chat_client(settings.model_copy(update={"tools_model": None}), token=lambda: "t")
 
 
 # --- several steps --------------------------------------------------------------------

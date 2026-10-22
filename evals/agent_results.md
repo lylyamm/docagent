@@ -127,3 +127,61 @@ Cost: the supervisor only (the tools' model is billed apart). Trajectories: 2026
 | 1 | Que dit le HCC sur les émissions des transports en 2024 ? | question | 55 s | 17 s | 2 | $0.0042 | 0/1 |
 
 Cost: the supervisor only (the tools' model is billed apart). Trajectories: 20261021-235551_1d74d151.json
+
+## 2026-10-22 10:31 · whole agent · supervisor google/gemini-2.5-pro · tools open-mistral-nemo
+
+| # | request | steps | duration | of which tools | supervisor calls | cost | points kept by the judge |
+|---|---|---|---|---|---|---|---|
+| 1 | Que dit le HCC sur les émissions des transports en 2024 ? | question | 139 s | 133 s | 1 | $0.0020 | not answered: figures not in the quotes: 1.6, 2050 |
+| 2 | Résume le rapport annuel 2025 du HCC | summarize | 98 s | 12 s | 2 | $0.0064 | 1/4 |
+| 3 | Compare l'AIE et le GIEC sur les trajectoires compatibles avec 1,5 °C | compare | 64 s | 8 s | 2 | $0.0055 | 0/2 |
+| 4 | Résume le rapport du HCC puis compare-le avec le GIEC sur les puits de carbone | summarize > compare | 491 s | 26 s | 3 | $0.0088 | 2/3, 0/2 |
+
+Cost: the supervisor only (the tools' model is billed apart). Trajectories: 20261022-101840_524a5696.json, 20261022-102101_53592b6d.json, 20261022-102241_22359420.json, 20261022-102346_05012fd6.json
+
+## 2026-10-22 12:04 · whole agent · supervisor google/gemini-2.5-pro · tools google/gemini-2.5-flash
+
+| # | request | steps | duration | of which tools | supervisor calls | supervisor cost | tools cost | points kept by the judge |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Que dit le HCC sur les émissions des transports en 2024 ? | question | 90 s | 63 s | 2 | $0.0039 | $0.0022 | 1/1 |
+| 2 | Résume le rapport annuel 2025 du HCC | summarize | 49 s | 20 s | 2 | $0.0070 | $0.0083 | 5/5 |
+| 3 | Compare l'AIE et le GIEC sur les trajectoires compatibles avec 1,5 °C | compare | 61 s | 18 s | 2 | $0.0049 | $0.0035 | 1/2 |
+| 4 | Résume le rapport du HCC puis compare-le avec le GIEC sur les puits de carbone | summarize > compare | 92 s | 47 s | 3 | $0.0141 | $0.0131 | 4/5, 3/3 |
+
+Points and answers kept by the review: 14 / 16. Tools cost: with TOOLS_PRICE_IN_USD / TOOLS_PRICE_OUT_USD ("-": not set, or a free tier). Trajectories: 20261022-115927_48d76a7e.json, 20261022-120058_31bacdd0.json, 20261022-120147_17afa4f6.json, 20261022-120250_85bbc131.json
+
+## 2026-10-22 12:50 · judge judge-v3 · google/gemini-2.5-pro · 11 statements × 3 runs
+
+| statements | removed by the judge | expected |
+|---|---|---|
+| traps (wrong meaning, right figures) | 15/15 (100 %) | all |
+| faithful | 1/15 (7 %) | none |
+| borderline (a nuance left out) | 3/3 (100 %) | - |
+
+Same verdict on every run: 10/11 (changed: B-true). Reviews that failed (nothing removed): 0.
+Faithful statements removed at least once: B-true.
+Judge call: median 9.8 s. Supervisor: 33 calls, 22815 tokens in, 1979 out, about $0.0483.
+Verdicts: evals/agent_runs/judge_2026-10-22_1250.json
+
+## 2026-10-22 12:55 · whole agent · supervisor google/gemini-2.5-pro · tools google/gemini-2.5-flash
+
+| # | request | steps | duration | of which tools | supervisor calls | supervisor cost | tools cost | points kept by the judge |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Que dit le HCC sur les émissions des transports en 2024 ? | question | 68 s | 33 s | 2 | $0.0043 | $0.0022 | 1/1 |
+| 2 | Résume le rapport annuel 2025 du HCC | summarize | 56 s | 24 s | 2 | $0.0084 | $0.0089 | 4/5 |
+| 3 | Compare l'AIE et le GIEC sur les trajectoires compatibles avec 1,5 °C | compare | 44 s | 23 s | 2 | $0.0047 | $0.0035 | 2/2 |
+| 4 | Résume le rapport du HCC puis compare-le avec le GIEC sur les puits de carbone | summarize > compare | 113 s | 48 s | 3 | $0.0149 | $0.0133 | 4/5, 3/3 |
+
+Points and answers kept by the review: 14 / 16. Tools cost: with TOOLS_PRICE_IN_USD / TOOLS_PRICE_OUT_USD ("-": not set, or a free tier). Trajectories: 20261022-125029_08bfcd33.json, 20261022-125138_6f1f4e68.json, 20261022-125235_2b6bc41e.json, 20261022-125319_52712e3f.json
+
+## 2026-10-22 13:11 · judge judge-v3 · google/gemini-2.5-pro · 11 statements × 3 runs
+
+| statements | removed by the judge | expected |
+|---|---|---|
+| traps (wrong meaning, right figures) | 15/15 (100 %) | all |
+| faithful | 0/15 (0 %) | none |
+| borderline (a nuance left out) | 3/3 (100 %) | - |
+
+Same verdict on every run: 11/11. Reviews that failed (nothing removed): 0.
+Judge call: median 8.7 s. Supervisor: 33 calls, 22821 tokens in, 1955 out, about $0.0481.
+Verdicts: evals/agent_runs/judge_2026-10-22_1311.json

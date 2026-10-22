@@ -34,6 +34,37 @@ class CallBudgetExceeded(ChatError):
     """The client already sent its maximum number of requests (a cost guard)."""
 
 
+def tools_chat_client(
+    settings: Settings | None = None, token: Callable[[], str] | None = None
+) -> "ChatClient":
+    """The model that writes answers, summaries and comparisons (TOOLS_PROVIDER).
+
+    Temperature 0 (the wording closest to the excerpts) and few retries: someone is
+    waiting. On Vertex AI, a busy shared model (429) gets AGENT_RATE_LIMIT_RETRIES more
+    tries, as the supervisor does. ``token``: for tests (else Google's sign-in).
+    """
+    settings = settings or get_settings()
+    common = {"temperature": 0.0, "max_retries": settings.ask_max_retries}
+    if settings.tools_provider != "vertex":
+        return ChatClient(settings, **common)
+    if not settings.tools_model:
+        raise RuntimeError(
+            "TOOLS_MODEL is required with TOOLS_PROVIDER=vertex (e.g. google/gemini-2.5-flash)"
+        )
+    if token is None:
+        from .gcp import google_token
+
+        token = google_token(settings.vertex_project)
+    return ChatClient(
+        settings,
+        base_url=settings.vertex_base_url,
+        model=settings.tools_model,
+        token=token,
+        rate_limit_retries=settings.agent_rate_limit_retries,
+        **common,
+    )
+
+
 class _Retryable(Exception):
     def __init__(self, message: str, response: httpx.Response | None = None) -> None:
         super().__init__(message)

@@ -5,8 +5,10 @@
 
 The requests below cover the routes that make claims (a question, a summary, a
 comparison, then two steps in one request). Everything runs: router, tools, judge.
-Measured per request: duration, supervisor calls, tokens and cost (the tools'
-model, LLM_MODEL, is not counted), points kept and removed by the judge.
+Measured per request: duration, supervisor calls and cost, the tools' cost (their
+model is TOOLS_MODEL on TOOLS_PROVIDER, else LLM_MODEL; priced with
+TOOLS_PRICE_*_USD), points kept and removed by the judge. To compare two tools'
+models, run it once with each: everything else stays the same.
 
 The agent's answers are not scored here (the routing and the judge have their own
 evaluations): each one is saved as a trajectory in AGENT_TRAJECTORIES_DIR, to be read.
@@ -51,6 +53,29 @@ def judged(trajectory) -> str:
     return ", ".join(parts) or "-"
 
 
+def money(value: float | None) -> str:
+    return "-" if value is None else f"${value:.4f}"
+
+
+def cost(settings, tokens_in: int, tokens_out: int) -> float | None:
+    """The tools' cost, with TOOLS_PRICE_*_USD (per 1M tokens); None if not set."""
+    price_in, price_out = settings.tools_price_in_usd, settings.tools_price_out_usd
+    if price_in is None or price_out is None:
+        return None
+    return (tokens_in * price_in + tokens_out * price_out) / 1_000_000
+
+
+def points(trajectories) -> tuple[int, int]:
+    """Points and answers kept by the review, out of those it read, over all requests."""
+    kept = total = 0
+    for t in trajectories:
+        for node in t.nodes:
+            if node.node == "judge" and node.judged and node.kept is not None:
+                kept += node.kept
+                total += node.kept + (node.removed or 0)
+    return kept, total
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -71,6 +96,7 @@ def main() -> None:
         graph = build_supervisor(tools, chat, checkpointer=memory_checkpointer())
         recorder = Recorder(request, chat, settings)
         print(f"\n> {request}")
+        before = tools.usage()
         state = recorder.run(graph, {"request": request})
         while "__interrupt__" in state:  # not expected here: no translation
             state = recorder.run(graph, Command(resume="non"))
@@ -86,32 +112,34 @@ def main() -> None:
                     f"other {t.get('other_s', 0):.1f} s]"
                 )
         tools_s = sum(r.duration_s for r in trajectory.nodes if r.tool is not None)
-        rows.append((n, request, trajectory, tools_s, path))
+        spent_in, spent_out = (a - b for a, b in zip(tools.usage(), before, strict=True))
+        tools_cost = cost(settings, spent_in, spent_out)
+        rows.append((n, request, trajectory, tools_s, tools_cost, path))
         print(
             f"[{trajectory.duration_s:.0f} s, {trajectory.supervisor_calls} calls, "
-            f"${trajectory.cost_usd or 0:.4f}] {path}"
+            f"${trajectory.cost_usd or 0:.4f} + tools {money(tools_cost)}] {path}"
         )
 
     stamp = datetime.now()
     lines = [
-        f"## {stamp:%Y-%m-%d %H:%M} · whole agent · supervisor {model} · "
-        f"tools {settings.llm_model}",
+        f"## {stamp:%Y-%m-%d %H:%M} · whole agent · supervisor {model} · tools {tools.chat.model}",
         "",
-        "| # | request | steps | duration | of which tools | supervisor calls | cost | "
-        "points kept by the judge |",
-        "|---|---|---|---|---|---|---|---|",
+        "| # | request | steps | duration | of which tools | supervisor calls | "
+        "supervisor cost | tools cost | points kept by the judge |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
-    for n, request, t, tools_s, _ in rows:
+    for n, request, t, tools_s, tools_cost, _ in rows:
         routes = " > ".join(p["route"] for p in t.plans)
-        cost = f"${t.cost_usd:.4f}" if t.cost_usd is not None else "-"
         lines.append(
             f"| {n} | {request} | {routes} | {t.duration_s:.0f} s | {tools_s:.0f} s | "
-            f"{t.supervisor_calls} | {cost} | {judged(t)} |"
+            f"{t.supervisor_calls} | {money(t.cost_usd)} | {money(tools_cost)} | {judged(t)} |"
         )
+    kept, total = points(row[2] for row in rows)
     lines += [
         "",
-        "Cost: the supervisor only (the tools' model is billed apart). Trajectories: "
-        + ", ".join(p.name for *_, p in rows),
+        f"Points and answers kept by the review: {kept} / {total}. Tools cost: with "
+        'TOOLS_PRICE_IN_USD / TOOLS_PRICE_OUT_USD ("-": not set, or a free tier). '
+        "Trajectories: " + ", ".join(p.name for *_, p in rows),
         "",
     ]
     text = "\n".join(lines)

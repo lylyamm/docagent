@@ -48,7 +48,7 @@ Work with climate and energy reports (IPCC, IEA, French High Council on Climate)
 **All three**
 
 - **Any OpenAI-compatible LLM**: Mistral, Groq, OpenRouter or a local Ollama model, chosen in `.env`.
-- **A separate provider for the agent's supervisor** (`AGENT_PROVIDER=vertex`: Gemini on Vertex AI, pay-as-you-go, signed in with Google credentials, no key in `.env`).
+- **A separate provider for the agent's supervisor and tools** (`AGENT_PROVIDER=vertex`, `TOOLS_PROVIDER=vertex`: Gemini on Vertex AI, pay-as-you-go, signed in with Google credentials, no key in `.env`).
 - **API + web front end + Docker**: FastAPI (asynchronous translation jobs, `/v1/ask`, `/v1/agent`), a Streamlit front end with a side-by-side preview, an "Ask the reports" tab and an "Assistant" tab, Qdrant as a service; `docker compose up` runs the translation and question demo.
 
 ## Results
@@ -97,7 +97,7 @@ Every run is in [evals/rag_results.md](evals/rag_results.md) and every answer in
 
 ### The agent
 
-Supervisor `google/gemini-2.5-pro` on Vertex AI, tools on `open-mistral-nemo`. Three evaluations, each one script ([evals/README.md](evals/README.md)):
+Supervisor `google/gemini-2.5-pro` on Vertex AI; tools on `open-mistral-nemo`, then `google/gemini-2.5-flash` (see *Whole runs*). Three evaluations, each one script ([evals/README.md](evals/README.md)):
 
 **Routing**: is each request turned into the right plan? 25 requests in 8 kinds (question, summary, comparison, translation, several steps, ambiguous, unclear, out of scope), the router alone, each played twice.
 
@@ -112,27 +112,33 @@ v3's only error (s3, in 2 runs out of 4) and most of its changes came from a rep
 
 **Review**: does the judge remove what is wrong and keep what is right? Real passages of the reports, each with a faithful statement and a trap that keeps every figure but changes the meaning (two periods swapped, the ocean and land sinks swapped, a carbon budget "respected" instead of exceeded, a record called a fall): the checks in code let a trap through, only the review can catch it. Each statement judged alone, 3 times.
 
-| Measure | judge-v2 |
-| --- | --- |
-| Traps removed | **15 / 15** |
-| Faithful statements removed | **0 / 15** |
-| Same verdict on the 3 runs | 10 / 11 statements |
-| A nuance left out ("−27 %" without "compared with no climate change") | removed 2 times out of 3 |
+| Measure | judge-v2 | judge-v3 |
+| --- | --- | --- |
+| Traps removed | **15 / 15** | **15 / 15** |
+| Faithful statements removed | **0 / 15** | **0 / 15** |
+| Same verdict on the 3 runs | 10 / 11 statements | 11 / 11 |
+| A nuance left out ("−27 %" without "compared with no climate change") | removed 2 times out of 3 | 3 times out of 3 |
 
-The one statement judged differently is the borderline one, and the review's reason for removing it holds: without the comparison, a relative drop reads as an observed loss.
+The review's reason for removing the borderline statement holds: without the comparison, a relative drop reads as an observed loss. judge-v3 came from a whole run: v2 removed a right point as "attributed to a 2025 IEA report that does not exist", the WEO 2025 being newer than the judge's training data; v3 judges against the passages only. Its first run removed one faithful statement once, for a real ambiguity of that statement ("compared with no climate change" placed where it read as applying to both sinks, while the report says it of the land sink only); the statement was rewritten, then measured again (above).
 
-**Whole runs**: 4 requests through router, tools and review ([scripts/agent_eval_runs.py](scripts/agent_eval_runs.py)), with the final code (21 October 2026).
+**Whole runs**: 4 requests (a question, a summary, a comparison, then both in one request) through router, tools and review ([scripts/agent_eval_runs.py](scripts/agent_eval_runs.py)), twice with each tools' model. Same router, same review: only `TOOLS_MODEL` changes.
 
-| Request | Steps | Duration | Supervisor cost | Points kept by the review |
+| Tools' model | Points and answers kept by the review | Duration per request | Cost per request (supervisor + tools) |
+| --- | --- | --- | --- |
+| `open-mistral-nemo` (free tier) | 9 / 24 (38 %) | 41 to 98 s (two outliers, 139 and 491 s: a cold machine loading the index, and "resource exhausted" retries) | about $0.006 (tools free) |
+| `google/gemini-2.5-flash` | **28 / 32 (88 %)** | 44 to 113 s | about $0.015 |
+
+The last run, with Gemini 2.5 Flash and judge-v3 (22 October 2026):
+
+| Request | Steps | Duration | Cost (supervisor + tools) | Points kept by the review |
 | --- | --- | --- | --- | --- |
-| Que dit le HCC sur les émissions des transports en 2024 ? | question | 55 s | $0.004 | 0 / 1 |
-| Résume le rapport annuel 2025 du HCC | summary | 55 s | $0.006 | 3 / 4 |
-| Compare l'AIE et le GIEC sur les trajectoires compatibles avec 1,5 °C | comparison | 41 s | $0.005 | 1 / 2 |
-| Résume le rapport du HCC puis compare-le avec le GIEC sur les puits de carbone | summary, comparison | 86 s | $0.009 | 1 / 3, 1 / 2 |
+| Que dit le HCC sur les émissions des transports en 2024 ? | question | 68 s | $0.007 | 1 / 1 |
+| Résume le rapport annuel 2025 du HCC | summary | 56 s | $0.017 | 4 / 5 |
+| Compare l'AIE et le GIEC sur les trajectoires compatibles avec 1,5 °C | comparison | 44 s | $0.008 | 2 / 2 |
+| Résume le rapport du HCC puis compare-le avec le GIEC sur les puits de carbone | summary, comparison | 113 s | $0.028 | 4 / 5, 3 / 3 |
 
-- **The tools' model is the weak link**: the review removed 6 of the 12 points and answers the tools wrote, each with a named error; those checked against the passages were real (a date of one report given to the other, "among the 10 wettest years" turned into "record rainfall", causes of road transport given to the whole sector). The same question was answered, refused and removed in three runs.
-- **Time is the supervisor's**: 69 to 83 % of each request is Gemini's reasoning (plan and review). In the question above, the search took 0.1 s and the tools' model 3.4 s; the rest of the tool time (14 s) was loading the index in a new process.
-- Cost is the supervisor only; the tools' model is billed apart (Mistral's free tier here).
+- **The tools' model was the weak link**: with `open-mistral-nemo`, the review removed most of what the tools wrote, each time with a named error; those checked against the passages were real (a date of one report given to the other, "among the 10 wettest years" turned into "record rainfall", causes of road transport given to the whole sector). The same question was answered, refused and removed in three runs. With Gemini 2.5 Flash the tools write more points and the review keeps 88 % of them; what it still removes is real (a condition the report states for the land sink applied to the ocean sink).
+- **Half of the time is the supervisor's**: 48 to 58 % of each request in the last run is Gemini 2.5 Pro reasoning (plan and review). In a question, the search takes 0.2 s and the tools' model 3 to 9 s; the rest of the tool time is loading the index in a new process.
 
 Every run is in [evals/agent_results.md](evals/agent_results.md), every plan and verdict in [evals/agent_runs/](evals/agent_runs/).
 
@@ -181,7 +187,7 @@ Requires [uv](https://docs.astral.sh/uv/).
 
 ```bash
 uv sync
-uv run pytest                                                  # 254 tests, no network, no key
+uv run pytest                                                  # 271 tests, no network, no key
 
 uv run python scripts/rebuild.py                               # fake translation of every sample + checks
 uv run python scripts/translate.py data/samples/giec_spm_en.pdf --pages 1 2   # real LLM translation
@@ -227,6 +233,7 @@ gcloud auth application-default set-quota-project <project id>
 ```
 
 3. In `.env`: `AGENT_PROVIDER=vertex`, `VERTEX_PROJECT=<project id>`, `AGENT_MODEL=google/gemini-2.5-pro` (and, for the cost estimate, `AGENT_PRICE_IN_USD` / `AGENT_PRICE_OUT_USD`). Without them, the supervisor uses the tools' provider (`AGENT_MODEL` alone picks another model there).
+4. Optional, the tools' model on Vertex AI too (answers, summaries, comparisons; the translator keeps `LLM_*`): `TOOLS_PROVIDER=vertex`, `TOOLS_MODEL=google/gemini-2.5-flash`, and `TOOLS_PRICE_IN_USD` / `TOOLS_PRICE_OUT_USD` for the cost in `scripts/agent_eval_runs.py`.
 
 ```bash
 uv sync --extra local --extra vertex
@@ -312,7 +319,7 @@ question ──► embed (e5) ──► Qdrant: 20 nearest passages ──┐
 - LaTeX formulas and drop caps in scientific papers still cause a few overlaps.
 - Scanned PDFs (images without text) need OCR, not supported.
 - A small free model makes occasional translation mistakes; larger models will be compared in phase 6.
-- Agent: 40 to 90 seconds per request, mostly the supervisor's reasoning; Gemini on Vertex AI is a shared model and sometimes answers "resource exhausted" (retried with growing pauses). The small tools' model writes points the review has to remove (about half in the whole runs), so a request can end with little kept; a stronger tools' model is the next lever. The evaluation sets are small (25 requests, 11 statements, 4 runs), and the routing set has been used to tune the router. Runs are kept in memory (one API process, one request at a time); the agent is not in the Docker image yet (it needs Google credentials).
+- Agent: 45 to 115 seconds per request, about half of it the supervisor's reasoning; Gemini on Vertex AI is a shared model and sometimes answers "resource exhausted" (retried with growing pauses). With a small free tools' model (`open-mistral-nemo`) the review removes most points, so a request can end with little kept: the agent needs a stronger one (`TOOLS_MODEL=google/gemini-2.5-flash`, about 1.5 cent per request). The evaluation sets are small (25 requests, 11 statements, 2 runs of 4 requests per tools' model), and the routing and review sets have been used to tune the router and the review. Runs are kept in memory (one API process, one request at a time); the agent is not in the Docker image yet (it needs Google credentials).
 - Questions: the evaluation sets are small (24 and 15 questions), so differences of one or two questions are not significant. Cross-lingual search relies on the dense model alone, since BM25 needs shared words. The answer checks catch invented quotes and figures, not a true sentence taken from the wrong passage. Indexing with a local model takes about 45 min on a laptop CPU.
 
 ## Roadmap

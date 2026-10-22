@@ -485,3 +485,23 @@ def test_a_bare_list_of_points_is_read_as_the_points(tmp_path):
     assert client.complete_json(message, LLMPoints).points[0].text.startswith("La mer")
     assert len(sent) == 2  # read at once, no retry
     assert LLMPoints.model_validate({"points": [point]}).points[0].evidence[0].n == 1
+
+
+def test_the_toolbox_counts_the_tokens_of_its_models(tmp_path):
+    """The supervisor's cost is in the trajectory; the tools' tokens are counted here."""
+    tool_chat, answer_chat = chat()[0], chat()[0]
+    tools = Toolbox(
+        settings(corpus_path=tmp_path / "c.json"),
+        answerer=Answerer(searcher(), answer_chat),
+        chat=tool_chat,
+    )
+    tool_chat.input_tokens, tool_chat.output_tokens = 100, 10
+    answer_chat.input_tokens, answer_chat.output_tokens = 50, 5
+    assert tools.usage() == (150, 15)
+    one = Toolbox(
+        settings(corpus_path=tmp_path / "c.json"),
+        answerer=Answerer(searcher(), tool_chat),  # the same client twice: counted once
+        chat=tool_chat,
+    )
+    assert one.usage() == (100, 10)
+    assert Toolbox(settings(corpus_path=tmp_path / "c.json")).usage() == (0, 0)  # nothing built

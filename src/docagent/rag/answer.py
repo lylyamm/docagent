@@ -35,7 +35,7 @@ import time
 
 from pydantic import BaseModel, Field, field_validator
 
-from ..chat import ChatClient
+from ..chat import ChatClient, tools_chat_client
 from ..config import Settings, get_settings
 from ..pdf.language import classify_text, french_or_english
 from .bm25 import tokenize
@@ -374,5 +374,5 @@ def build_answerer(settings: Settings | None = None) -> Answerer:
         )
     searcher = HybridSearcher(passages, embedder, store)
     # Temperature 0: the most likely wording, closest to the excerpts, and repeatable.
-    chat = ChatClient(settings, temperature=0.0, max_retries=settings.ask_max_retries)
+    chat = tools_chat_client(settings)  # TOOLS_PROVIDER: LLM_* by default
     return Answerer(searcher, chat, top_k=settings.rag_top_k)

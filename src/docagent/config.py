@@ -105,6 +105,15 @@ class Settings(BaseSettings):
     vertex_project: str | None = None
     vertex_location: str = "global"
 
+    # The tools' model: it writes the answers (/v1/ask and the agent's questions), the
+    # summaries and the comparisons. "same": LLM_PROVIDER / LLM_MODEL, like the
+    # translator; "vertex": TOOLS_MODEL on Vertex AI (e.g. google/gemini-2.5-flash),
+    # signed in like the supervisor. The translator always uses LLM_*.
+    tools_provider: Literal["same", "vertex"] = "same"
+    tools_model: str | None = None
+    tools_price_in_usd: float | None = None  # per 1M tokens, for the cost estimate
+    tools_price_out_usd: float | None = None
+
     # API server
     max_upload_mb: int = 20
     max_pages: int = 50

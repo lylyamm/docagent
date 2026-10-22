@@ -7,7 +7,7 @@
 | `rag_results.md` | Every run, appended. |
 | `answers/` | Every answer of every answer run, to be read. |
 | `agent_routing.jsonl` (25) | **Agent routing.** Requests and the plans each one accepts (route, reports, topic, file), in 8 kinds: question, summary, comparison, translation, several steps, ambiguous (2 plans accepted), unclear, out of scope. Written once router-v3 was done; q1 and o1 are also examples of the router's prompt. **Development set since router-v4**: its v3 run (s3, c1, m3: which version of the WEO) was used to write v4's rule, so its v4 scores are optimistic. |
-| `judge_traps.jsonl` (5 passages) | **Agent judge.** For real passages of the reports: a faithful statement, a trap (same figures, wrong meaning) and, for one, a borderline statement. |
+| `judge_traps.jsonl` (5 passages) | **Agent judge.** For real passages of the reports: a faithful statement, a trap (same figures, wrong meaning) and, for one, a borderline statement. B's faithful statement was rewritten after the first judge-v3 run (2026-10-22): it put "compared with no climate change" at the end of the sentence, where it reads as applying to both sinks, while the passage says it of the land sink only; the judge removed it once, for that reason. |
 | `agent_results.md` | Every agent evaluation run, appended. |
 | `agent_runs/` | Every plan and every verdict of these runs. |
 

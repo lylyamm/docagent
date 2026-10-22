@@ -20,7 +20,10 @@ from ..chat import ChatClient, ChatError
 # cited passages, answers in the user's language. v1 (nemo, HCC 2025 summary)
 # removed 4 points of 5, for omissions ("does not mention SSP5-8.5") or for a figure
 # present in the passage but not in the quoted sentence.
-JUDGE_PROMPT_VERSION = "judge-v2"
+# v3: judges against the passages only, never against what the model knows. v2 removed
+# a right point "attributed to a 2025 IEA report that does not exist": the WEO 2025 is
+# in the corpus, but newer than the judge's training data (whole run, 2026-10-22).
+JUDGE_PROMPT_VERSION = "judge-v3"
 
 JUDGE_SYSTEM_PROMPT = """You review statements written from climate and energy reports.
 
@@ -37,6 +40,8 @@ These are NOT errors: leaving out details, context or scenarios; paraphrasing; \
 summarising; translating; a figure taken from the passage rather than from the quote.
 When you cannot name the error precisely, the item is faithful. Judge each item alone, \
 and do not judge whether the reports are right.
+Judge only against the passages, never against what you know: the reports, their titles \
+and their years are given by the system and exist, even if you have never heard of them.
 
 Write "problem" in {language}, in one sentence, naming the error.
 

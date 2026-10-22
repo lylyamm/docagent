@@ -31,7 +31,7 @@ from typing import Literal
 import pymupdf
 from pydantic import BaseModel, field_validator
 
-from ..chat import ChatClient
+from ..chat import ChatClient, tools_chat_client
 from ..config import Settings, get_settings
 from ..pdf import detect_language, rebuild_document
 from ..pdf.language import classify_text
@@ -271,11 +271,16 @@ class Toolbox:
     @property
     def chat(self) -> ChatClient:
         if self._chat is None:
-            # Temperature 0 and few retries, like the answers: someone is waiting.
-            self._chat = ChatClient(
-                self.settings, temperature=0.0, max_retries=self.settings.ask_max_retries
-            )
+            # The same model as the answers (TOOLS_PROVIDER), at temperature 0.
+            self._chat = tools_chat_client(self.settings)
         return self._chat
+
+    def usage(self) -> tuple[int, int]:
+        """Input and output tokens spent so far by the tools' models (summaries and
+        comparisons, answers): what the supervisor's count leaves out."""
+        clients = [self._chat, self._answerer.chat if self._answerer else None]
+        seen = {id(c): c for c in clients if c is not None}.values()  # may be one client
+        return sum(c.input_tokens for c in seen), sum(c.output_tokens for c in seen)
 
     # -- Translation workflow ---------------------------------------------------
 

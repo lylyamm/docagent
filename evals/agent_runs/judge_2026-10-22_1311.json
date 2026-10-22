@@ -1,0 +1,299 @@
+[
+  {
+    "item": "A-true",
+    "kind": "true",
+    "run": 1,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 12.12
+  },
+  {
+    "item": "A-trap",
+    "kind": "trap",
+    "run": 1,
+    "judged": true,
+    "removed": true,
+    "problem": "La déclaration inverse les chiffres des deux décennies et conclut à un ralentissement de la hausse alors que le passage indique une accélération.",
+    "duration_s": 11.3
+  },
+  {
+    "item": "B-true",
+    "kind": "true",
+    "run": 1,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 7.5
+  },
+  {
+    "item": "B-trap",
+    "kind": "trap",
+    "run": 1,
+    "judged": true,
+    "removed": true,
+    "problem": "La déclaration inverse les chiffres de réduction de la capacité d'absorption des puits océanique (5,9 % dans le passage) et terrestre (27 % dans le passage).",
+    "duration_s": 5.89
+  },
+  {
+    "item": "B-borderline",
+    "kind": "borderline",
+    "run": 1,
+    "judged": true,
+    "removed": true,
+    "problem": "L'affirmation omet de préciser que la réduction de 27 % de la capacité d'absorption du puits terrestre est calculée par rapport à un scénario sans changement climatique, et non comme une perte absolue sur la période.",
+    "duration_s": 15.61
+  },
+  {
+    "item": "C-true",
+    "kind": "true",
+    "run": 1,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 5.56
+  },
+  {
+    "item": "C-trap",
+    "kind": "trap",
+    "run": 1,
+    "judged": true,
+    "removed": true,
+    "problem": "The statement incorrectly attributes the 1.59 °C warming figure to the ocean and the 0.88 °C figure to the land, while the passage states the opposite.",
+    "duration_s": 6.23
+  },
+  {
+    "item": "D-true",
+    "kind": "true",
+    "run": 1,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 8.91
+  },
+  {
+    "item": "D-trap",
+    "kind": "trap",
+    "run": 1,
+    "judged": true,
+    "removed": true,
+    "problem": "La déclaration inverse les chiffres des émissions (124,9 Mt) et du budget carbone (120 Mt), et affirme donc à tort que le budget a été respecté alors qu'il a été dépassé.",
+    "duration_s": 8.67
+  },
+  {
+    "item": "E-true",
+    "kind": "true",
+    "run": 1,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 10.44
+  },
+  {
+    "item": "E-trap",
+    "kind": "trap",
+    "run": 1,
+    "judged": true,
+    "removed": true,
+    "problem": "L'affirmation contredit le passage, qui indique que les émissions ont atteint un record et non qu'elles ont baissé.",
+    "duration_s": 5.42
+  },
+  {
+    "item": "A-true",
+    "kind": "true",
+    "run": 2,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 11.98
+  },
+  {
+    "item": "A-trap",
+    "kind": "trap",
+    "run": 2,
+    "judged": true,
+    "removed": true,
+    "problem": "La déclaration inverse les chiffres des deux décennies, concluant à un ralentissement de la hausse alors que le passage indique une accélération.",
+    "duration_s": 9.16
+  },
+  {
+    "item": "B-true",
+    "kind": "true",
+    "run": 2,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 5.97
+  },
+  {
+    "item": "B-trap",
+    "kind": "trap",
+    "run": 2,
+    "judged": true,
+    "removed": true,
+    "problem": "La déclaration inverse les chiffres de réduction de la capacité d'absorption entre le puits océanique (5,9 %) et le puits terrestre (27 %).",
+    "duration_s": 6.3
+  },
+  {
+    "item": "B-borderline",
+    "kind": "borderline",
+    "run": 2,
+    "judged": true,
+    "removed": true,
+    "problem": "La réduction de 27 % n'est pas une évolution sur la période 2014-2023 mais une comparaison avec un scénario sans changement climatique.",
+    "duration_s": 19.05
+  },
+  {
+    "item": "C-true",
+    "kind": "true",
+    "run": 2,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 6.14
+  },
+  {
+    "item": "C-trap",
+    "kind": "trap",
+    "run": 2,
+    "judged": true,
+    "removed": true,
+    "problem": "The statement incorrectly attributes the 1.59 °C warming figure to the ocean and the 0.88 °C figure to the land, while the passage states the opposite.",
+    "duration_s": 7.5
+  },
+  {
+    "item": "D-true",
+    "kind": "true",
+    "run": 2,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 8.72
+  },
+  {
+    "item": "D-trap",
+    "kind": "trap",
+    "run": 2,
+    "judged": true,
+    "removed": true,
+    "problem": "La déclaration inverse les chiffres du budget carbone (120 Mt) et des émissions (124,9 Mt), et affirme à tort que les émissions sont restées sous le budget alors que le passage dit qu'il a été dépassé.",
+    "duration_s": 24.5
+  },
+  {
+    "item": "E-true",
+    "kind": "true",
+    "run": 2,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 10.28
+  },
+  {
+    "item": "E-trap",
+    "kind": "trap",
+    "run": 2,
+    "judged": true,
+    "removed": true,
+    "problem": "La déclaration affirme que les émissions ont baissé, alors que le passage indique qu'elles ont atteint un niveau record, ce qui est le contraire.",
+    "duration_s": 5.84
+  },
+  {
+    "item": "A-true",
+    "kind": "true",
+    "run": 3,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 12.59
+  },
+  {
+    "item": "A-trap",
+    "kind": "trap",
+    "run": 3,
+    "judged": true,
+    "removed": true,
+    "problem": "La déclaration inverse les chiffres des deux décennies, concluant à un ralentissement de la hausse alors que le passage indique une accélération.",
+    "duration_s": 9.73
+  },
+  {
+    "item": "B-true",
+    "kind": "true",
+    "run": 3,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 6.23
+  },
+  {
+    "item": "B-trap",
+    "kind": "trap",
+    "run": 3,
+    "judged": true,
+    "removed": true,
+    "problem": "La déclaration inverse les chiffres de réduction de la capacité d'absorption entre le puits océanique (5,9 %) et le puits terrestre (27 %).",
+    "duration_s": 7.62
+  },
+  {
+    "item": "B-borderline",
+    "kind": "borderline",
+    "run": 3,
+    "judged": true,
+    "removed": true,
+    "problem": "L'affirmation présente la réduction de 27 % comme une perte sur la période 2014-2023, alors que le rapport la compare à un scénario hypothétique sans changement climatique.",
+    "duration_s": 17.3
+  },
+  {
+    "item": "C-true",
+    "kind": "true",
+    "run": 3,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 8.59
+  },
+  {
+    "item": "C-trap",
+    "kind": "trap",
+    "run": 3,
+    "judged": true,
+    "removed": true,
+    "problem": "The statement incorrectly attributes the 1.59 °C warming figure to the ocean and the 0.88 °C figure to the land, while the passage states the opposite.",
+    "duration_s": 6.03
+  },
+  {
+    "item": "D-true",
+    "kind": "true",
+    "run": 3,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 12.19
+  },
+  {
+    "item": "D-trap",
+    "kind": "trap",
+    "run": 3,
+    "judged": true,
+    "removed": true,
+    "problem": "La déclaration inverse les chiffres des émissions (124,9 Mt) et du budget carbone (120 Mt), et affirme donc à tort que le budget a été respecté alors qu'il a été dépassé.",
+    "duration_s": 9.09
+  },
+  {
+    "item": "E-true",
+    "kind": "true",
+    "run": 3,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 7.0
+  },
+  {
+    "item": "E-trap",
+    "kind": "trap",
+    "run": 3,
+    "judged": true,
+    "removed": true,
+    "problem": "La déclaration affirme que les émissions ont baissé alors que le passage indique qu'elles ont atteint un record, ce qui est le contraire.",
+    "duration_s": 7.42
+  }
+]
