@@ -127,7 +127,7 @@ class FontCatalog:
         self._fonts: dict[str, list[tuple[str, pymupdf.Font]]] = {}
         self._ink: dict[tuple[str, str], bool] = {}
         seen: set[int] = set()
-        for page in doc:
+        for page in doc:  # type: ignore[attr-defined]  # a Document iterates its pages
             for entry in page.get_fonts(full=True):
                 xref, basefont = entry[0], entry[3]
                 if xref in seen or xref == 0:
@@ -632,14 +632,15 @@ def rebuild_page(
     space = FreeSpace(page, blocks)  # computed before erasing anything
 
     # 1. Erase: text only; keep images and line art (charts, table fills).
+    # (PyMuPDF's type hints miss fill=False, "no fill", and the redaction constants.)
     for target in targets:
         for rect in redaction_rects(target, protected):
-            page.add_redact_annot(rect, fill=False)
+            page.add_redact_annot(rect, fill=False)  # type: ignore[arg-type]
     for bbox in fragments:
-        page.add_redact_annot(pymupdf.Rect(bbox), fill=False)
+        page.add_redact_annot(pymupdf.Rect(bbox), fill=False)  # type: ignore[arg-type]
     page.apply_redactions(
-        images=pymupdf.PDF_REDACT_IMAGE_NONE,
-        graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,
+        images=pymupdf.PDF_REDACT_IMAGE_NONE,  # type: ignore[attr-defined]
+        graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,  # type: ignore[attr-defined]
     )
 
     # 2. Rewrite in the original font when possible, growing the box into free

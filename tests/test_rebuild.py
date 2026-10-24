@@ -94,6 +94,7 @@ def test_rebuilt_blocks_stay_in_original_area(source_pdf, tmp_path):
 # --- rebuild on the real samples --------------------------------------------
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(not SAMPLE_FILES, reason="no sample PDFs in data/samples")
 @pytest.mark.parametrize("path", SAMPLE_FILES, ids=lambda p: p.stem)
 def test_samples_rebuild(path, tmp_path):
@@ -118,6 +119,7 @@ def test_samples_rebuild(path, tmp_path):
     assert report.overflow <= 0.05 * report.targets
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(not SAMPLE_FILES, reason="no sample PDFs in data/samples")
 def test_side_by_side(tmp_path):
     source = SAMPLE_FILES[0]
@@ -134,6 +136,7 @@ def test_fake_translate_can_keep_case():
     assert fake_translate("Solar PV", expansion=0, uppercase=False) == "Solar PV"
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(not (SAMPLES / "hcc_2025_2col.pdf").exists(), reason="HCC sample missing")
 def test_original_font_is_reused(tmp_path):
     """Text is rewritten in the document's embedded font when it has the glyphs."""
@@ -144,6 +147,7 @@ def test_original_font_is_reused(tmp_path):
     assert any("EuclidCircularA" in name for name in fonts)
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(not (SAMPLES / "hcc_grand_public.pdf").exists(), reason="HCC sample missing")
 def test_inline_colour_survives_rebuild(tmp_path):
     """HCC page 1: "Au cours de la dernière décennie," is red inside a blue block."""

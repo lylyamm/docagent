@@ -186,6 +186,19 @@ def test_store_only_embeds_what_is_missing():
     assert [p.page for p in store.missing(ps)] == [3, 4, 5]
 
 
+def test_a_vector_without_its_passage_id_is_skipped():
+    """Found by mypy: Qdrant may return a point without payload; it is not a passage."""
+    from qdrant_client.models import PointStruct
+
+    ps = passages()
+    embedder = HashEmbedder()
+    store = VectorStore(open_client(":memory:"), "t", embedder.dim, "hash")
+    vectors = embedder.embed_documents([p.embed_text for p in ps[:1]])
+    store.upsert(ps[:1], vectors)
+    store.client.upsert(store.collection, points=[PointStruct(id=1, vector=vectors[0])])
+    assert [pid for pid, _ in store.search(vectors[0], top_k=5)] == [ps[0].id]
+
+
 # --- Mistral embeddings (HTTP mocked) -----------------------------------------------------
 
 

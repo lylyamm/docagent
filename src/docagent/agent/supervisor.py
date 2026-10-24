@@ -33,7 +33,7 @@ per request, then once per step that makes claims. ``AGENT_MAX_CALLS`` caps its 
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, TypedDict
+from typing import Any, Literal, TypedDict, cast
 
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -111,7 +111,8 @@ Answer with JSON only:
 {{"steps": [{{"route": "...", "question": "", "doc_ids": [], "topic": "", "path": "", \
 "target_lang": "", "reply": ""}}]}}"""
 
-TEXTS = {
+# Messages written by code, by language: strings, and the route labels (a dict).
+TEXTS: dict[str, dict[str, Any]] = {
     "fr": {
         "out_of_scope": (
             "Je peux traduire un PDF en gardant sa mise en page, répondre à une question sur "
@@ -312,7 +313,7 @@ def check_plan(
     """One step of the router's plan, made safe: anything missing or unknown becomes
     a question. ``files``: the PDF of each report, to translate a report by its id."""
     text = TEXTS[lang]
-    route = raw.route if raw.route in ROUTES else "clarify"
+    route = cast(Route, raw.route if raw.route in ROUTES else "clarify")
     ids = list(dict.fromkeys(i.strip() for i in raw.doc_ids if i.strip()))
     unknown = [i for i in ids if i not in known]
 
@@ -366,7 +367,7 @@ def _quotes(sources) -> list[str]:
 
 def _excerpts(sources) -> list[str]:
     """The whole cited passages: a figure may come from the passage, not the quote."""
-    seen = {}
+    seen: dict[str, str] = {}
     for s in sources:
         seen.setdefault(s.passage_id, f"{s.title}, p. {s.page}: {s.excerpt}")
     return list(seen.values())
@@ -556,7 +557,7 @@ def build_supervisor(tools: Toolbox, agent_chat: ChatClient | None = None, check
                 )
             else:
                 how = text["from_search"].format(n=summary.passages_used)
-            points = list(enumerate(summary.points, start=1))
+            points: list[tuple[int, Any]] = list(enumerate(summary.points, start=1))
             head = f"{text['summary'].format(title=summary.title)} ({how}) :"
         else:
             comparison = state["comparison"]
@@ -591,7 +592,7 @@ def build_supervisor(tools: Toolbox, agent_chat: ChatClient | None = None, check
             or plan.route in ("clarify", "out_of_scope")
             or (plan.route == "translate" and not state.get("translation_ok"))
         )
-        update: AgentState = {key: None for key in STEP_KEYS}  # a clean slate per step
+        update = cast(AgentState, {key: None for key in STEP_KEYS})  # a clean slate per step
         update["sections"] = [*state.get("sections", []), render(state)]
         update["step"] = i + 1
         if i + 1 >= len(plans):
@@ -686,7 +687,7 @@ def agent_chat_client(settings: Settings, token: Callable[[], str] | None = None
 
     At most AGENT_MAX_CALLS requests per client, retries included (0 = no limit).
     """
-    common = {
+    common: dict[str, Any] = {
         "temperature": 0.0,
         "max_retries": settings.ask_max_retries,
         "max_requests": settings.agent_max_calls or None,

@@ -203,7 +203,7 @@ def create_app(
 
         job = store.create(
             Job(
-                filename=file.filename,
+                filename=file.filename or "document.pdf",  # read_pdf refused a nameless file
                 source_lang=source_lang,
                 target_lang=target_lang,
                 pages_total=pages,
@@ -320,6 +320,10 @@ def _run_job(store: JobStore, job_id: str, make_translator: Callable[[], Transla
     """Translate one job; any failure is recorded on the job, never raised."""
     job = store.update(job_id, status=JobStatus.RUNNING)
     start = time.perf_counter()
+
+    def on_page(done: int, _total: int) -> None:
+        store.update(job_id, pages_done=done)
+
     try:
         report = rebuild_document(
             store.input_path(job_id),
@@ -327,7 +331,7 @@ def _run_job(store: JobStore, job_id: str, make_translator: Callable[[], Transla
             make_translator(),
             source_lang=job.source_lang,
             target_lang=job.target_lang,
-            on_page=lambda done, _total: store.update(job_id, pages_done=done),
+            on_page=on_page,
         )
         check = verify_rebuild(store.input_path(job_id), store.output_path(job_id), report)
         duration = round(time.perf_counter() - start, 2)

@@ -144,7 +144,7 @@ class Chunker:
     def split_document(
         self, doc: pymupdf.Document, doc_id: str, title: str, lang: str | None = None
     ) -> list[Passage]:
-        pages = [extract_blocks(page) for page in doc]
+        pages = [extract_blocks(page) for page in doc]  # type: ignore[attr-defined]  # iterates pages
         body = body_font_size([b for blocks in pages for b in blocks])
         skip = boilerplate_lines(pages)
         passages: list[Passage] = []

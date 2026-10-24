@@ -186,8 +186,11 @@ On Windows PowerShell, the first command is `$env:TRANSLATOR="fake"; docker comp
 Requires [uv](https://docs.astral.sh/uv/).
 
 ```bash
-uv sync
-uv run pytest                                                  # 271 tests, no network, no key
+uv sync --extra local --extra vertex --group front            # everything (plain `uv sync`: core + dev only)
+uv run pytest                                                  # 276 tests, no network, no key
+uv run pytest -m "not slow"                                    # the same without the PDF rebuilds: ~15 s
+uv run pytest --cov=docagent                                   # with coverage (96 %)
+uv run pre-commit install --hook-type pre-commit --hook-type pre-push   # ruff and checks before each commit, fast tests before each push
 
 uv run python scripts/rebuild.py                               # fake translation of every sample + checks
 uv run python scripts/translate.py data/samples/giec_spm_en.pdf --pages 1 2   # real LLM translation

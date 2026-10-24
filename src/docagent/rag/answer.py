@@ -32,6 +32,7 @@ unsupported_numbers) to understand each refusal.
 import logging
 import re
 import time
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -307,7 +308,7 @@ class Answerer:
         passages = [h.passage for h in hits]
         not_found = NOT_FOUND[question_language(question)]
         timings = {"search_s": round(time.perf_counter() - start, 3)}
-        base = {
+        base: dict[str, Any] = {
             "question": question,
             "retrieved": [p.id for p in passages],
             "model": self.chat.model,

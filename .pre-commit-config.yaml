@@ -1,0 +1,42 @@
+# Checks run by git before each commit (and the fast tests before each push).
+#   uv run pre-commit install --hook-type pre-commit --hook-type pre-push   # once
+#   uv run pre-commit run --all-files                                       # by hand
+# Every hook is local: it uses the ruff and pytest of uv.lock (same versions as the
+# CI), and needs no download.
+default_stages: [pre-commit]  # the fast tests say their own stage (pre-push)
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check (lint, imports sorted; fixes what it can)
+        entry: uv run ruff check --fix
+        language: system
+        types: [python]
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        types: [python]
+      - id: mypy
+        name: mypy (types of src/docagent)
+        entry: uv run mypy
+        language: system
+        pass_filenames: false
+        files: ^src/.*\.py$
+      - id: no-env-file
+        name: no .env file (keys stay on this machine)
+        entry: .env files hold API keys and are never committed
+        language: fail
+        files: (^|/)\.env$
+      - id: no-private-key
+        name: no private key in the files
+        entry: "-----BEGIN [A-Z ]*PRIVATE KEY-----"
+        language: pygrep
+        types: [text]
+      - id: fast-tests
+        name: fast tests (pytest -m "not slow")
+        entry: uv run pytest -q -m "not slow"
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

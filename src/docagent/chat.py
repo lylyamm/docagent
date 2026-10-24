@@ -1,20 +1,25 @@
 """A small client for OpenAI-compatible chat completions, returning validated JSON.
 
-Used by the question answering (``rag/answer.py``). The translator
-(``translate/llm.py``) has its own copy of this logic, written first; merging
-the two is planned for the industrialisation week.
+The one client of the project: the answers (``rag/answer.py``), the agent's tools,
+supervisor and judge, and the translator (``translate/llm.py``, which had its own
+copy of this logic until the industrialisation week).
 
 - one request = a list of messages -> a JSON answer validated by a Pydantic model;
 - requests spaced by ``llm_min_interval_s`` (free tiers allow ~1 request/second);
 - rate limits (429), server errors, timeouts and invalid JSON retried with
-  exponential backoff; other 4xx errors (bad key, bad request) raised at once.
+  exponential backoff; other 4xx errors (bad key, bad request) raised at once;
+- ``check``: a test the caller adds on the parsed answer (the translator: at least
+  one of the ids it asked for); an answer that fails it is retried like invalid JSON;
+- counters for the cost and for monitoring: requests, answered, retries, errors by
+  kind, tokens.
 """
 
 import logging
 import random
 import time
+from collections import Counter
 from collections.abc import Callable
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import httpx
 from pydantic import BaseModel, ValidationError
@@ -44,7 +49,7 @@ def tools_chat_client(
     tries, as the supervisor does. ``token``: for tests (else Google's sign-in).
     """
     settings = settings or get_settings()
-    common = {"temperature": 0.0, "max_retries": settings.ask_max_retries}
+    common: dict[str, Any] = {"temperature": 0.0, "max_retries": settings.ask_max_retries}
     if settings.tools_provider != "vertex":
         return ChatClient(settings, **common)
     if not settings.tools_model:
@@ -69,6 +74,16 @@ class _Retryable(Exception):
     def __init__(self, message: str, response: httpx.Response | None = None) -> None:
         super().__init__(message)
         self.response = response
+
+
+def _kind(exc: Exception) -> str:
+    """A failure's kind, for the counters: "HTTP 429", "invalid answer", "ConnectError"."""
+    response = getattr(exc, "response", None)
+    if response is not None:
+        return f"HTTP {response.status_code}"
+    if isinstance(exc, _Retryable):
+        return "invalid answer"
+    return type(exc).__name__
 
 
 def _reason(response: httpx.Response, limit: int = 200) -> str:
@@ -129,11 +144,21 @@ class ChatClient:
         self.requests = 0  # every request sent, refused ones included
         self.answered = 0  # requests that got an answer (billed)
         self.rate_limit_retries = rate_limit_retries or 0
+        self.retries = 0  # requests sent again after a failure
+        self.errors: Counter[str] = Counter()  # failures by kind ("HTTP 429", "invalid answer")
         self.input_tokens = 0
         self.output_tokens = 0
 
-    def complete_json(self, messages: list[dict], schema: type[T]) -> T:
-        """Send the messages; return the answer parsed into ``schema``."""
+    def complete_json(
+        self,
+        messages: list[dict],
+        schema: type[T],
+        check: Callable[[T], None] | None = None,
+    ) -> T:
+        """Send the messages; return the answer parsed into ``schema``.
+
+        ``check`` raises ``ValueError`` on an answer that is valid JSON but unusable.
+        """
         failures = rate_limited = 0  # other failures, and 429 refusals
         attempt = 0
         while True:
@@ -141,20 +166,28 @@ class ChatClient:
             try:
                 content = self._call(messages)
                 try:
-                    return schema.model_validate_json(content)
+                    parsed = schema.model_validate_json(content)
                 except ValidationError as exc:
                     raise _Retryable(f"invalid JSON answer: {exc.errors()[:1]}") from exc
+                if check is not None:
+                    try:
+                        check(parsed)
+                    except ValueError as exc:
+                        raise _Retryable(f"invalid answer: {exc}") from exc
+                return parsed
             except (httpx.TransportError, _Retryable) as exc:
                 response = getattr(exc, "response", None)
                 if response is not None and response.status_code == 429:
                     rate_limited += 1
                 else:
                     failures += 1
+                self.errors[_kind(exc)] += 1
                 extra = max(0, rate_limited - self.rate_limit_retries)  # beyond the 429 allowance
                 if failures + extra > self.max_retries:
                     raise ChatError(f"no valid answer after {attempt} attempts: {exc}") from exc
                 delay = self._delay(rate_limited - 1 if rate_limited else failures - 1, exc)
                 logger.warning("chat attempt %d failed (%s), retry in %.1fs", attempt, exc, delay)
+                self.retries += 1
                 self.sleep(delay)
 
     def _call(self, messages: list[dict]) -> str:
@@ -184,7 +217,13 @@ class ChatClient:
             reason = _reason(response)
             status = f"HTTP {response.status_code}" + (f": {reason}" if reason else "")
             raise _Retryable(status, response)
-        response.raise_for_status()  # other 4xx: a bad key or a bug, retrying won't help
+        if response.is_error:  # other 4xx: a bad key or a bug, retrying won't help
+            reason = _reason(response)
+            raise httpx.HTTPStatusError(
+                f"HTTP {response.status_code}" + (f": {reason}" if reason else ""),
+                request=response.request,
+                response=response,
+            )
         self.answered += 1
         payload = response.json()
         usage = payload.get("usage") or {}

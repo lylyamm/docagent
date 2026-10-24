@@ -29,7 +29,10 @@ vertex = [
 
 [dependency-groups]
 dev = [
+    "mypy>=2.4.0",
+    "pre-commit>=4.7.0",
     "pytest>=8",
+    "pytest-cov>=7.1.0",
     "ruff>=0.6",
 ]
 front = [
@@ -50,5 +53,20 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
+[tool.mypy]
+python_version = "3.11"
+files = ["src/docagent"]
+warn_unused_ignores = true  # an ignore that no longer hides anything is reported
+warn_redundant_casts = true
+
+[[tool.mypy.overrides]]
+# Libraries without type hints: optional extras (local embeddings, Google sign-in) and
+# the language detector.
+module = ["sentence_transformers", "google", "google.*", "py3langid.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: rebuilds whole sample PDFs (about 2 min in all); skip them with -m \"not slow\"",
+]

@@ -110,7 +110,10 @@ class LocalEmbedder:
         # the cost of an outlier (Qwen3 accepts 32k tokens, attention is quadratic).
         self.model.max_seq_length = min(self.model.max_seq_length or max_tokens, max_tokens)
         dimension = getattr(self.model, "get_embedding_dimension", None)
-        self.dim = (dimension or self.model.get_sentence_embedding_dimension)()
+        dim = (dimension or self.model.get_sentence_embedding_dimension)()
+        if not dim:  # the vector store needs it to create its collection
+            raise RuntimeError(f"{self.model_id} does not say the size of its vectors")
+        self.dim: int = dim
 
     def _encode(self, texts: list[str]) -> list[list[float]]:
         vectors = self.model.encode(

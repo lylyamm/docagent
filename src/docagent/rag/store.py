@@ -108,7 +108,8 @@ class VectorStore:
         hits = self.client.query_points(
             self.collection, query=vector, limit=top_k, query_filter=where, with_payload=True
         ).points
-        return [(h.payload["passage_id"], h.score) for h in hits]
+        # Every point is stored with its passage id; a point without one is skipped.
+        return [(h.payload["passage_id"], h.score) for h in hits if h.payload]
 
     def count(self) -> int:
         return self.client.count(self.collection).count

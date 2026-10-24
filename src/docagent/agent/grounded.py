@@ -134,7 +134,7 @@ def check_point(
 ) -> "Point | RejectedPoint":
     """One point: kept with its verified sources, or rejected with the reason."""
     evidence_items = [e.model_dump() for e in point.evidence]  # its validator wants dicts
-    as_answer = LLMAnswer(answerable=True, answer=point.text, evidence=evidence_items)
+    as_answer = LLMAnswer(answerable=True, answer=point.text, evidence=evidence_items)  # type: ignore[arg-type]
     evidence, bad_quotes = verified_evidence(as_answer, passages)
     proposed = [f"[{e.n}] {e.quote}" for e in point.evidence]
     if not evidence:
@@ -178,7 +178,10 @@ def check_points(
     rejected: list[RejectedPoint] = []
     for point in reply.points:
         result = check_point(point, passages, request)
-        (kept if isinstance(result, Point) else rejected).append(result)
+        if isinstance(result, Point):
+            kept.append(result)
+        else:
+            rejected.append(result)
     return kept, rejected
 
 
@@ -352,7 +355,7 @@ class ComparisonPoint(BaseModel):
         head = f"{self.aspect}. " if self.aspect else ""
         return head + " ".join(f"{s.title}: {s.says}" for s in self.sides)
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]  # pydantic's documented pattern
     @property
     def text(self) -> str:
         """The point as shown: report names written by code, not by the model."""

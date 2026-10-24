@@ -8,20 +8,22 @@ One request per page (split if the page is long): the model sees the blocks in
 reading order, which gives it context, and returns JSON ``{"translations":
 [{"id": 0, "text": "..."}, ...]}`` validated with Pydantic. Rate limits, server
 errors, timeouts and invalid answers are retried with exponential backoff, and
-requests are spaced out to stay under free-tier rate limits.
+requests are spaced out to stay under free-tier rate limits: all of that is the
+project's one LLM client (``chat.py``); this module only adds what is specific to
+translation (glossary, codes kept as is, skipped blocks asked again, style tags).
 """
 
 import json
 import logging
-import random
 import re
 import time
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import httpx
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
+from ..chat import ChatClient
 from ..config import Settings, get_settings
 from .base import Translator
 from .glossary import Glossary
@@ -68,22 +70,48 @@ class TranslationBatch(BaseModel):
     translations: list[TranslationItem]
 
 
-class InvalidAnswer(ValueError):
-    """The model answered, but not with a usable translation batch."""
+def expected_ids(n: int):
+    """The check of a translation answer: at least one of the ids 0..n-1. A partial
+    answer is fine (the missing blocks are asked again); none at all is retried."""
+
+    def check(batch: "TranslationBatch") -> None:
+        if not any(0 <= item.id < n for item in batch.translations):
+            raise ValueError("no expected id in the answer")
+
+    return check
 
 
 @dataclass
 class UsageStats:
-    requests: int = 0
-    retries: int = 0
-    input_tokens: int = 0
-    output_tokens: int = 0
+    """What a translation cost and what was fixed. Requests, retries, tokens and
+    errors are the LLM client's; the rest is the translator's own work."""
+
+    chat: ChatClient
     kept_locally: int = 0  # codes and exact glossary entries, not sent to the model
     missing_asked_again: int = 0  # blocks the model skipped and that were requested again
     tags_restored: int = 0  # broken style tags fixed locally (no API call)
     tag_repairs: int = 0  # broken style tags fixed by asking the model again
     tag_fallbacks: int = 0  # translations whose style tags stayed broken and were dropped
-    errors: Counter = field(default_factory=Counter)
+
+    @property
+    def requests(self) -> int:
+        return self.chat.requests
+
+    @property
+    def retries(self) -> int:
+        return self.chat.retries
+
+    @property
+    def input_tokens(self) -> int:
+        return self.chat.input_tokens
+
+    @property
+    def output_tokens(self) -> int:
+        return self.chat.output_tokens
+
+    @property
+    def errors(self) -> Counter[str]:
+        return self.chat.errors
 
 
 _TAG_RE = re.compile(r"</?s\d+>")
@@ -118,21 +146,22 @@ class ChatTranslator(Translator):
         client: httpx.Client | None = None,
         sleep=time.sleep,
         clock=time.monotonic,
+        chat: ChatClient | None = None,
     ) -> None:
+        """``chat``: the LLM client (default: LLM_* settings, temperature 0.2, up to
+        LLM_MAX_RETRIES retries); ``client``/``sleep``/``clock`` are passed to it."""
         self.settings = settings or get_settings()
-        self.base_url = self.settings.resolved_base_url
-        self.model = self.settings.resolved_model
-        self._api_key = self.settings.resolved_api_key  # raises if a required key is missing
+        # Raises if a required key or model is missing.
+        self.chat = chat or ChatClient(
+            self.settings, client=client, sleep=sleep, clock=clock, temperature=0.2
+        )
+        self.model = self.chat.model
         self.name = f"{self.settings.llm_provider}:{self.model}:{PROMPT_VERSION}"
         # An explicit glossary wins; otherwise GLOSSARY_PATH, otherwise the file
         # for the language pair in GLOSSARY_DIR (data/glossary_en_fr.json).
         self.glossary = glossary
         self._glossaries: dict[tuple[str, str], Glossary] = {}
-        self.client = client or httpx.Client(timeout=self.settings.llm_timeout_s)
-        self.sleep = sleep
-        self.clock = clock
-        self._last_request = float("-inf")
-        self.stats = UsageStats()
+        self.stats = UsageStats(self.chat)
 
     # -- public API --------------------------------------------------------------
 
@@ -231,25 +260,12 @@ class ChatTranslator(Translator):
         raise RuntimeError(f"blocks {todo[:5]} still untranslated after {MISSING_ROUNDS} requests")
 
     def _request(self, messages: list[dict], n: int) -> dict[int, str]:
-        """One translation request, retried on errors; returns ``{id: translation}``."""
-        attempts = self.settings.llm_max_retries + 1
-        for attempt in range(attempts):
-            try:
-                return self._parse(self._call(messages), n)
-            except (httpx.TransportError, InvalidAnswer, _RetryableHTTP) as exc:
-                self.stats.errors[type(exc).__name__] += 1
-                if attempt == attempts - 1:
-                    raise RuntimeError(f"translation failed after {attempts} attempts") from exc
-                delay = self._delay(attempt, exc)
-                logger.warning(
-                    "translation attempt %d failed (%s), retrying in %.1fs",
-                    attempt + 1,
-                    exc,
-                    delay,
-                )
-                self.stats.retries += 1
-                self.sleep(delay)
-        raise AssertionError("unreachable")
+        """One translation request, retried on errors; returns ``{id: translation}``.
+
+        Raises ``ChatError`` (a ``RuntimeError``) when every attempt failed.
+        """
+        batch = self.chat.complete_json(messages, TranslationBatch, check=expected_ids(n))
+        return {item.id: item.text.strip() for item in batch.translations if 0 <= item.id < n}
 
     def _repair_tags(
         self, results: list[str], broken: list[int], texts: list[str], source: str, target: str
@@ -315,88 +331,3 @@ class ChatTranslator(Translator):
         record = {"model": self.model, "source": source, "first": first, "retry": retry}
         with path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
-
-    def _throttle(self) -> None:
-        """Wait so that two requests are at least ``llm_min_interval_s`` apart."""
-        wait = self._last_request + self.settings.llm_min_interval_s - self.clock()
-        if wait > 0:
-            self.sleep(wait)
-        self._last_request = self.clock()
-
-    def _call(self, messages: list[dict]) -> str:
-        self._throttle()
-        self.stats.requests += 1
-        headers = {"Content-Type": "application/json"}
-        if self._api_key is not None:
-            headers["Authorization"] = f"Bearer {self._api_key.get_secret_value()}"
-        response = self.client.post(
-            f"{self.base_url}/chat/completions",
-            headers=headers,
-            json={
-                "model": self.model,
-                "messages": messages,
-                "temperature": 0.2,
-                "response_format": {"type": "json_object"},
-            },
-        )
-        if response.status_code == 429 or response.status_code >= 500:
-            raise _RetryableHTTP(response)
-        if response.is_error:  # 4xx other than 429: a bug or a bad key, don't retry
-            raise httpx.HTTPStatusError(
-                f"HTTP {response.status_code}: {_error_message(response)}",
-                request=response.request,
-                response=response,
-            )
-        payload = response.json()
-        usage = payload.get("usage") or {}
-        self.stats.input_tokens += usage.get("prompt_tokens", 0)
-        self.stats.output_tokens += usage.get("completion_tokens", 0)
-        return payload["choices"][0]["message"]["content"]
-
-    def _parse(self, content: str, n: int) -> dict[int, str]:
-        """``{id: translation}`` for the ids 0..n-1 found in the answer.
-
-        Invalid JSON, or an answer without a single expected id, is an error
-        (retried); a partial answer is returned as is.
-        """
-        try:
-            batch = TranslationBatch.model_validate_json(content)
-        except ValidationError as exc:
-            raise InvalidAnswer(f"invalid JSON answer: {exc.errors()[:1]}") from exc
-        found = {item.id: item.text.strip() for item in batch.translations if 0 <= item.id < n}
-        if not found:
-            raise InvalidAnswer("no expected id in the answer")
-        return found
-
-    def _delay(self, attempt: int, exc: Exception) -> float:
-        """Exponential backoff with jitter, honouring Retry-After when given.
-
-        Rate limits (429) start at 5 s: free tiers count requests per minute,
-        so retrying after 1-2 s only burns the next attempts.
-        """
-        if isinstance(exc, _RetryableHTTP):
-            retry_after = exc.response.headers.get("retry-after")
-            if retry_after:
-                try:
-                    return min(float(retry_after), 60.0)
-                except ValueError:
-                    pass
-            if exc.response.status_code == 429:
-                return min(5 * 2**attempt, 60) + random.uniform(0, 2)
-        return min(2**attempt, 30) + random.uniform(0, 1)
-
-
-class _RetryableHTTP(Exception):
-    def __init__(self, response: httpx.Response) -> None:
-        super().__init__(f"HTTP {response.status_code}: {_error_message(response)}")
-        self.response = response
-
-
-def _error_message(response: httpx.Response) -> str:
-    """The API's own explanation (rate limit, capacity, plan...), shortened."""
-    try:
-        body = response.json()
-        message = body.get("message") or body.get("detail") or body
-    except ValueError:
-        message = response.text
-    return str(message)[:200]

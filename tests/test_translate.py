@@ -285,12 +285,24 @@ def test_requests_are_spaced_out():
 
 
 def test_rate_limit_backoff_is_patient():
-    translator, _ = translator_with([answer(["x"])])
-    response = httpx.Response(429, request=httpx.Request("POST", "http://x"))
-    from docagent.translate.llm import _RetryableHTTP
+    from docagent.chat import ChatClient, _Retryable
 
-    delays = [translator._delay(a, _RetryableHTTP(response)) for a in range(5)]
+    response = httpx.Response(429, request=httpx.Request("POST", "http://x"))
+    delays = [ChatClient._delay(a, _Retryable("HTTP 429", response)) for a in range(5)]
     assert delays[0] >= 5 and delays[3] >= 40 and all(d <= 62 for d in delays)
+
+
+def test_an_answer_without_any_expected_id_is_asked_again():
+    """Valid JSON, but ids the request never had: the shared client's ``check``."""
+    wrong = httpx.Response(
+        200,
+        json={"choices": [{"message": {"content": '{"translations": [{"id": 7, "text": "?"}]}'}}]},
+    )
+    translator, requests = translator_with([wrong, answer(["Bonjour"])])
+    assert translator.translate_blocks(["Hello"], "en", "fr") == ["Bonjour"]
+    assert len(requests) == 2 and translator.stats.retries == 1
+    assert translator.stats.errors == {"invalid answer": 1}
+    assert translator.chat.temperature == 0.2  # translation keeps its own temperature
 
 
 # --- cache and glossary --------------------------------------------------------

@@ -422,7 +422,7 @@ class Toolbox:
         if not (focus or "").strip() and doc and doc.summary_pages:
             # The authors already summarised their report: start from that.
             first, last = doc.summary_pages
-            method = "author_summary"
+            method: Literal["author_summary", "search"] = "author_summary"
             focus = DEFAULT_FOCUS[lang]
             found = spread([p for p in in_doc if first <= p.page <= last], SUMMARY_MAX_CHARS)
             where = f"Excerpts of the report's own summary (pages {first} to {last})"

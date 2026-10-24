@@ -10,14 +10,15 @@ both searches beats being first in only one.
 
 from collections import defaultdict
 from collections.abc import Hashable, Sequence
+from typing import TypeVar
+
+T = TypeVar("T", bound=Hashable)  # a passage id, usually
 
 
-def reciprocal_rank_fusion(
-    rankings: Sequence[Sequence[Hashable]], k: int = 60
-) -> list[tuple[Hashable, float]]:
+def reciprocal_rank_fusion(rankings: Sequence[Sequence[T]], k: int = 60) -> list[tuple[T, float]]:
     """Fused (item, score) list, best first. Ties keep the first ranking's order."""
-    scores: dict[Hashable, float] = defaultdict(float)
-    order: dict[Hashable, int] = {}
+    scores: dict[T, float] = defaultdict(float)
+    order: dict[T, int] = {}
     for ranking in rankings:
         for rank, item in enumerate(ranking, start=1):
             scores[item] += 1 / (k + rank)
