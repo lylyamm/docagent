@@ -1,5 +1,7 @@
 # DocAgent
 
+[![CI](https://github.com/lylyamm/docagent/actions/workflows/ci.yml/badge.svg)](https://github.com/lylyamm/docagent/actions/workflows/ci.yml)
+
 Work with climate and energy reports (IPCC, IEA, French High Council on Climate) in three ways:
 
 - **Translate** a PDF **without breaking its layout**: charts, colours, columns, footnotes and styles stay where they were. The PDF is split into text blocks, translated page by page by an LLM with validated JSON output, and each block is rewritten in place.
