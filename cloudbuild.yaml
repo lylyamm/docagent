@@ -1,0 +1,16 @@
+# Build the image in Google Cloud and push it to Artifact Registry.
+#   gcloud builds submit --config cloudbuild.yaml --region europe-west9 --substitutions _TAG=<commit>
+steps:
+  - name: gcr.io/cloud-builders/docker
+    # BuildKit: the Dockerfile uses RUN --mount=type=cache
+    env: ["DOCKER_BUILDKIT=1"]
+    args:
+      - build
+      - -t
+      - europe-west9-docker.pkg.dev/$PROJECT_ID/docagent/docagent:$_TAG
+      - .
+images:
+  - europe-west9-docker.pkg.dev/$PROJECT_ID/docagent/docagent:$_TAG
+substitutions:
+  _TAG: manual
+timeout: 1800s  # torch + the e5 model: longer than the default 10 minutes
