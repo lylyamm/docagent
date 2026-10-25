@@ -7,9 +7,10 @@ FROM ghcr.io/astral-sh/uv:python3.11-bookworm-slim AS builder
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
 WORKDIR /app
 # Dependencies first: this layer is cached as long as uv.lock doesn't change.
+# "vertex": the Google sign-in (Gemini on Vertex AI, the index in Cloud Storage).
 COPY pyproject.toml uv.lock README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --group front --no-install-project
+    uv sync --frozen --no-dev --group front --extra vertex --no-install-project
 
 # Local embedding model (questions on the reports). The lock pins torch from
 # PyPI, whose Linux wheel brings ~3 GB of CUDA libraries a CPU container never
@@ -31,7 +32,7 @@ SentenceTransformer('intfloat/multilingual-e5-base')"
 
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --group front --no-editable --inexact
+    uv sync --frozen --no-dev --group front --extra vertex --no-editable --inexact
 
 FROM python:3.11-slim-bookworm AS runtime
 RUN useradd --create-home --uid 1000 app \
