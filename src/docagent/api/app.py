@@ -34,6 +34,7 @@ from ..pdf import rebuild_document
 from ..pdf.language import SUPPORTED, DetectedLanguage, detect_language
 from ..pdf.verify import verify_rebuild
 from ..rag.answer import Answer, Answerer, build_answerer
+from ..remote_data import fetch_remote_data
 from ..translate import Translator, build_translator
 from .jobs import Job, JobStatus, JobStore, JobSummary
 from .logging_config import configure_logging
@@ -87,7 +88,7 @@ def create_app(
     make_translator = translator_factory or (
         lambda: build_translator(settings, fake=settings.translator == "fake")
     )
-    make_answerer = answerer_factory or (lambda: build_answerer(settings))
+    make_answerer = answerer_factory or (lambda: default_answerer(settings))
     # The search index (passages, embedding model, vectors) is loaded on the first
     # question, not at start-up: translation works without it. One instance is
     # shared; the lock stops two first questions from loading it twice.
@@ -298,12 +299,19 @@ def create_app(
     return app
 
 
+def default_answerer(settings: Settings) -> Answerer:
+    """The real answerer, after copying the index from its bucket (Cloud Run)."""
+    fetch_remote_data(settings)
+    return build_answerer(settings)
+
+
 def default_agent(settings: Settings, get_answerer: Callable[[], Answerer]) -> AgentRuns:
     """The real agent: tools on LLM_MODEL, supervisor on AGENT_PROVIDER / AGENT_MODEL,
     at most AGENT_MAX_CALLS_PER_REQUEST supervisor calls per request."""
     from ..agent import Toolbox
     from ..agent.supervisor import agent_chat_client
 
+    fetch_remote_data(settings)  # the corpus PDFs, which the agent can translate
     token = None
     if settings.agent_provider == "vertex":
         from ..gcp import google_token

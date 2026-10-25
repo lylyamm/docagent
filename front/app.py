@@ -9,6 +9,8 @@
 
 Run:  uv run --group front streamlit run front/app.py
 (the API must be running; DOCAGENT_API_URL defaults to http://localhost:8000)
+
+On Cloud Run the API is private: every call carries an identity token for it.
 """
 
 import os
@@ -17,6 +19,8 @@ import time
 import httpx
 import pymupdf
 import streamlit as st
+
+from docagent.gcp import identity_token
 
 API_URL = os.environ.get("DOCAGENT_API_URL", "http://localhost:8000").rstrip("/")
 LANGUAGES = {
@@ -59,9 +63,24 @@ st.set_page_config(page_title="DocAgent", page_icon="📄", layout="wide")
 st.title("DocAgent · climate & energy reports")
 
 
+@st.cache_data(ttl=45 * 60, show_spinner=False)  # a token is valid one hour
+def cached_identity_token(audience: str) -> str:
+    return identity_token(audience)
+
+
+def api(method: str, path: str, **kwargs) -> httpx.Response:
+    """One call to the API. On Cloud Run (K_SERVICE is set) the call carries an
+    identity token for the API, signed for the front's service account; locally, none.
+    Raises ``httpx.HTTPError``."""
+    headers = {}
+    if os.environ.get("K_SERVICE"):
+        headers["Authorization"] = f"Bearer {cached_identity_token(API_URL)}"
+    return httpx.request(method, f"{API_URL}{path}", headers=headers, **kwargs)
+
+
 def api_health() -> dict | None:
     try:
-        return httpx.get(f"{API_URL}/health", timeout=5).json()
+        return api("GET", "/health", timeout=5).json()
     except httpx.HTTPError:
         return None
 
@@ -81,8 +100,8 @@ def detect(name: str, pdf: bytes) -> dict | None:
     key = f"detected:{name}:{len(pdf)}"
     if key not in st.session_state:
         try:
-            response = httpx.post(
-                f"{API_URL}/v1/detect", files={"file": (name, pdf, "application/pdf")}, timeout=30
+            response = api(
+                "POST", "/v1/detect", files={"file": (name, pdf, "application/pdf")}, timeout=30
             )
             st.session_state[key] = response.json() if response.status_code == 200 else None
         except httpx.HTTPError:
@@ -136,8 +155,9 @@ def translation_tab(health: dict | None) -> None:
         if source == target:
             st.warning("Choose two different languages.")
             return
-        response = httpx.post(
-            f"{API_URL}/v1/translate",
+        response = api(
+            "POST",
+            "/v1/translate",
             files={"file": (uploaded.name, uploaded.getvalue(), "application/pdf")},
             data={"source_lang": source, "target_lang": target},
             timeout=60,
@@ -149,7 +169,7 @@ def translation_tab(health: dict | None) -> None:
 
         progress = st.progress(0.0, text="Queued…")
         while True:
-            job = httpx.get(f"{API_URL}/v1/jobs/{job_id}", timeout=10).json()
+            job = api("GET", f"/v1/jobs/{job_id}", timeout=10).json()
             done, total = job["pages_done"], job["pages_total"]
             progress.progress(done / total, text=f"{job['status']} · page {done}/{total}")
             if job["status"] in ("done", "failed"):
@@ -159,7 +179,7 @@ def translation_tab(health: dict | None) -> None:
         if job["status"] == "failed":
             st.error(f"Translation failed: {job['error']}")
             return
-        result = httpx.get(f"{API_URL}/v1/jobs/{job_id}/download", timeout=60).content
+        result = api("GET", f"/v1/jobs/{job_id}/download", timeout=60).content
         st.session_state["result"] = {
             "original": uploaded.getvalue(),
             "translated": result,
@@ -193,9 +213,7 @@ def ask(question: str, top_k: int) -> dict:
     """POST /v1/ask. The API loads the search index at start-up (about a minute)."""
     start = time.perf_counter()
     try:
-        response = httpx.post(
-            f"{API_URL}/v1/ask", json={"question": question, "top_k": top_k}, timeout=180
-        )
+        response = api("POST", "/v1/ask", json={"question": question, "top_k": top_k}, timeout=180)
     except httpx.HTTPError as exc:
         return {"error": f"API unreachable: {exc}"}
     if response.status_code != 200:
@@ -266,7 +284,7 @@ def agent_call(method: str, path: str, **kwargs) -> dict:
     """An agent endpoint. A refused call comes back as {"api_error": ...}: a run has
     its own "error" field, set when the run itself failed."""
     try:
-        response = httpx.request(method, f"{API_URL}{path}", timeout=30, **kwargs)
+        response = api(method, path, timeout=30, **kwargs)
     except httpx.HTTPError as exc:
         return {"api_error": f"API unreachable: {exc}"}
     if response.status_code >= 400:

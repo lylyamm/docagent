@@ -72,6 +72,10 @@ class Settings(BaseSettings):
     rag_index_dir: Path = Path("data/index")
     rag_raw_dir: Path = Path("data/raw")  # the corpus PDFs (the agent can translate them)
     corpus_path: Path = Path("data/corpus.json")  # titles, URLs, summary pages
+    # On Cloud Run the disk starts empty: the index and the corpus PDFs are copied at
+    # start-up from a bucket, e.g. gs://docagent-lilia-index/index (None: local data).
+    rag_index_url: str | None = None
+    rag_raw_url: str | None = None
     # Qdrant: None = embedded on disk in <rag_index_dir>/qdrant (no server);
     # "http://qdrant:6333" = the docker-compose service; ":memory:" = tests.
     qdrant_url: str | None = None

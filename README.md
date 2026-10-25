@@ -10,7 +10,7 @@ Work with climate and energy reports (IPCC, IEA, French High Council on Climate)
 
 ![IPCC Summary for Policymakers, page 6: original on the left, DocAgent's French translation on the right](docs/images/giec_chart.png)
 
-**Status:** v0.3, translator + question answering (RAG) + LangGraph agent. Agent evaluated (routing, review, whole runs); the ingestion agent is next (see [Roadmap](#roadmap)).
+**Status:** v0.3, translator + question answering (RAG) + LangGraph agent. Agent evaluated (routing, review, whole runs); cloud deployment in progress, then a watch agent with MCP (see [Roadmap](#roadmap)).
 
 ## What it does
 
@@ -332,9 +332,10 @@ question ──► embed (e5) ──► Qdrant: 20 nearest passages ──┐
 1. ~~**PDF core**: extraction and in-place reconstruction with a fake translation~~
 2. ~~**Translator v1**: LLM translation, FastAPI, Docker, web front end~~
 3. ~~**RAG**: hybrid search with page-level citations, verified answers, evaluation, Qdrant as a Docker service~~
-4. **Agent**: ~~LangGraph supervisor planning translate / ask / summarize / compare steps, reviewed results, API and front end, evaluation of the routing, the review and whole runs~~; ingestion agent with MCP tools (fetch) to keep the corpus up to date
-5. **Industrialization**: CI/CD, cloud deployment, tracing and cost monitoring
-6. **Evaluation**: translation benchmark (COMET, chrF) against official IPCC French versions
+4. ~~**Agent**: LangGraph supervisor planning translate / ask / summarize / compare steps, reviewed results, API and front end, evaluation of the routing, the review and whole runs~~
+5. **Industrialization**: ~~tests and quality (pre-commit, mypy, coverage), CI on every push and pull request~~; deployment to Cloud Run with GitHub Actions and Workload Identity Federation, Terraform, tracing and cost monitoring (Langfuse)
+6. **Watch agent (MCP)**: checks a short allowlist of publisher pages (IPCC, IEA, HCC) through the MCP Fetch server, spots new editions of the reports, asks before downloading, then indexes them; evaluated on recorded pages
+7. **Evaluation**: translation benchmark (COMET, chrF) against official IPCC French versions
 
 ## Project layout
 
