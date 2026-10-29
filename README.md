@@ -10,7 +10,7 @@ Work with climate and energy reports (IPCC, IEA, French High Council on Climate)
 
 ![IPCC Summary for Policymakers, page 6: original on the left, DocAgent's French translation on the right](docs/images/giec_chart.png)
 
-**Status:** v0.3, translator + question answering (RAG) + LangGraph agent. Agent evaluated (routing, review, whole runs); cloud deployment in progress, then a watch agent with MCP (see [Roadmap](#roadmap)).
+**Status:** v0.4, translator + question answering (RAG) + LangGraph agent, deployed on Google Cloud Run (private services, see [Deployment](#deployment-on-google-cloud)). Next: automatic deployment from GitHub, Terraform, tracing, then a watch agent with MCP (see [Roadmap](#roadmap)).
 
 ## What it does
 
@@ -33,7 +33,7 @@ Work with climate and energy reports (IPCC, IEA, French High Council on Climate)
 
 - **Understands a request and plans it**: one step (a question, a summary, a comparison, a translation) or up to 5 in order (« traduis … puis dis-moi … »). The plan comes from the supervisor's model as JSON; the code checks every step (reports exist, a summary has one report, a comparison 2 or 3) and turns what does not hold into a clarifying question.
 - **Summaries and comparisons checked like answers**: a summary starts from the authors' own summary pages; a comparison has one side per report, and the code checks that each side quotes only its own report and never claims what a report does not contain.
-- **A stronger model reviews the result**: after each step, the supervisor (Gemini 2.5 Pro on Vertex AI) reads every point next to its passages and removes the ones that do not say what the sources say. It can only remove, never add.
+- **A stronger model reviews the result**: after each step, the supervisor (Gemini 3.8 Flash on Vertex AI) reads every point next to its passages and removes the ones that do not say what the sources say. It can only remove, never add.
 - **Asks before long work**: a translation of more than 50 pages pauses the agent (`interrupt()`) until the user says yes or no.
 - **Every run is recorded**: a trajectory (plan, nodes, durations, points removed by the code and by the review, cost) is saved as JSON; the API and the front end show it while the agent works.
 - **Cost guards**: at most 12 supervisor calls per request in the API, a 5-step limit enforced by code, and a monthly budget on the cloud project.
@@ -99,7 +99,7 @@ Every run is in [evals/rag_results.md](evals/rag_results.md) and every answer in
 
 ### The agent
 
-Supervisor `google/gemini-2.5-pro` on Vertex AI; tools on `open-mistral-nemo`, then `google/gemini-2.5-flash` (see *Whole runs*). Three evaluations, each one script ([evals/README.md](evals/README.md)):
+Measured first with supervisor `google/gemini-2.5-pro` on Vertex AI and tools on `open-mistral-nemo`, then `google/gemini-2.5-flash` (see *Whole runs*); Gemini 2.5 was then retired from Vertex AI and the same evaluations chose its replacements (see *Model migration* below). Three evaluations, each one script ([evals/README.md](evals/README.md)):
 
 **Routing**: is each request turned into the right plan? 25 requests in 8 kinds (question, summary, comparison, translation, several steps, ambiguous, unclear, out of scope), the router alone, each played twice.
 
@@ -141,6 +141,24 @@ The last run, with Gemini 2.5 Flash and judge-v3 (22 October 2026):
 
 - **The tools' model was the weak link**: with `open-mistral-nemo`, the review removed most of what the tools wrote, each time with a named error; those checked against the passages were real (a date of one report given to the other, "among the 10 wettest years" turned into "record rainfall", causes of road transport given to the whole sector). The same question was answered, refused and removed in three runs. With Gemini 2.5 Flash the tools write more points and the review keeps 88 % of them; what it still removes is real (a condition the report states for the land sink applied to the ocean sink).
 - **Half of the time is the supervisor's**: 48 to 58 % of each request in the last run is Gemini 2.5 Pro reasoning (plan and review). In a question, the search takes 0.2 s and the tools' model 3 to 9 s; the rest of the tool time is loading the index in a new process.
+
+**Model migration (28 October 2026).** Google retired Gemini 2.5 from Vertex AI while the API was being deployed: the first questions on Cloud Run failed with "model not found". Models are settings, not code, so the replacements were chosen by running the same evaluations again, then changed in the deployment settings without rebuilding the image.
+
+| Evaluation | Gemini 2.5 Pro (supervisor) + 2.5 Flash (tools) | **Gemini 3.8 Flash + 3.5 Flash-Lite** |
+| --- | --- | --- |
+| Routing: right plan / same plan on both runs | 50 / 50, 25 / 25 | 48 / 50, 25 / 25 |
+| Routing: cost of the 50 router calls | $0.099 | **$0.046** |
+| Review: traps removed / faithful statements removed | 15 / 15, 0 / 15 | 15 / 15, 0 / 15 |
+| Review: a nuance left out, removed | 3 times out of 3 | 0 times out of 3 |
+| Review: judge call, median | 8.7 s | **3.4 s** |
+| Whole runs: points and answers kept by the review | 14 / 16 | **14 / 14** |
+| Whole runs: duration per request | 44 to 113 s | **7 to 29 s** |
+| Whole runs: cost per request | about $0.015 | **about $0.007** |
+| Questions, test set (tools' model only): answered citing the right page | 11 / 15 (`open-mistral-nemo`, same day) | **13 / 15**, refusals 4 / 4 |
+
+- **One regression, kept in view**: « Résume le rapport de l'ADEME 2024 », a report that is not indexed, is now classed out of scope instead of getting a question back with the reports available (2 runs out of 2). The request set is a development set, so a rule written for it would make the next score optimistic.
+- **A more lenient judge on omissions**: 3.8 Flash keeps a statement that leaves out a nuance, where 2.5 Pro removed it; it still removes every trap. No verdict was expected for that statement.
+- **Seen on the new models**: 4 router calls out of 50 waited for the 120 s timeout before a successful retry; Flash-Lite sometimes drops French accents in comparison points.
 
 Every run is in [evals/agent_results.md](evals/agent_results.md), every plan and verdict in [evals/agent_runs/](evals/agent_runs/).
 
@@ -189,7 +207,7 @@ Requires [uv](https://docs.astral.sh/uv/).
 
 ```bash
 uv sync --extra local --extra vertex --group front            # everything (plain `uv sync`: core + dev only)
-uv run pytest                                                  # 276 tests, no network, no key
+uv run pytest                                                  # the whole suite, no network, no key
 uv run pytest -m "not slow"                                    # the same without the PDF rebuilds: ~15 s
 uv run pytest --cov=docagent                                   # with coverage (96 %)
 uv run pre-commit install --hook-type pre-commit --hook-type pre-push   # ruff and checks before each commit, fast tests before each push
@@ -237,8 +255,8 @@ gcloud auth application-default login
 gcloud auth application-default set-quota-project <project id>
 ```
 
-3. In `.env`: `AGENT_PROVIDER=vertex`, `VERTEX_PROJECT=<project id>`, `AGENT_MODEL=google/gemini-2.5-pro` (and, for the cost estimate, `AGENT_PRICE_IN_USD` / `AGENT_PRICE_OUT_USD`). Without them, the supervisor uses the tools' provider (`AGENT_MODEL` alone picks another model there).
-4. Optional, the tools' model on Vertex AI too (answers, summaries, comparisons; the translator keeps `LLM_*`): `TOOLS_PROVIDER=vertex`, `TOOLS_MODEL=google/gemini-2.5-flash`, and `TOOLS_PRICE_IN_USD` / `TOOLS_PRICE_OUT_USD` for the cost in `scripts/agent_eval_runs.py`.
+3. In `.env`: `AGENT_PROVIDER=vertex`, `VERTEX_PROJECT=<project id>`, `AGENT_MODEL=google/gemini-3.8-flash` (and, for the cost estimate, `AGENT_PRICE_IN_USD` / `AGENT_PRICE_OUT_USD`). Without them, the supervisor uses the tools' provider (`AGENT_MODEL` alone picks another model there).
+4. Optional, the tools' model on Vertex AI too (answers, summaries, comparisons; the translator keeps `LLM_*`): `TOOLS_PROVIDER=vertex`, `TOOLS_MODEL=google/gemini-3.5-flash-lite`, and `TOOLS_PRICE_IN_USD` / `TOOLS_PRICE_OUT_USD` for the cost in `scripts/agent_eval_runs.py`.
 
 ```bash
 uv sync --extra local --extra vertex
@@ -247,6 +265,25 @@ uv run python scripts/agent_chat.py --fake-translator          # same, translati
 ```
 
 Or start the API and the front end (above) and open the **Assistant** tab. Each request is saved as a trajectory in `data/trajectories/`.
+
+## Deployment on Google Cloud
+
+![Deployment architecture: laptop with pre-commit hooks, GitHub CI, Cloud Build and Artifact Registry, two private Cloud Run services (Streamlit front, FastAPI api), Vertex AI, Secret Manager, Cloud Storage and Cloud Logging; dashed: automatic deployment with Workload Identity Federation, Terraform, IAP and Langfuse, the next steps](docs/images/architecture.png)
+
+The whole application runs on Cloud Run in Paris (`europe-west9`), built from the same Docker image as above:
+
+| Piece | Choice | Why |
+| --- | --- | --- |
+| Image | Built by **Cloud Build** (`cloudbuild.yaml`), tagged with the git commit, stored in **Artifact Registry** | Only the code is uploaded (a few MB), the 2 to 3 GB image is built next to the registry; the tag says which code runs |
+| Two services | `docagent-api` (FastAPI, 2 vCPU, 4 GiB) and `docagent-front` (Streamlit, 1 vCPU, 1 GiB), same image, another start command | The front end is light, the API holds the model and the index |
+| Scale to zero | `min 0`, `max 1` instance each | Nothing to pay when nobody uses it, and a cost that cannot run away; the price is a cold start: the container starts, then about 1 min of copying the data and loading the model before the first search |
+| Background work | `--no-cpu-throttling` on the API | Translations and agent runs go on after the `202` response; by default Cloud Run gives almost no CPU between requests |
+| Data | The search index and the corpus PDFs (~170 MB) in **Cloud Storage**, copied to the disk when the API starts (`RAG_INDEX_URL`, `RAG_RAW_URL`, [remote_data.py](src/docagent/remote_data.py)) | The image holds code and model, the bucket holds data: a new index needs no new image |
+| Models | Vertex AI with the service's own identity, no key; the Mistral key for translation in **Secret Manager**, given to the API as an environment variable | No secret in the image, in the repository or in the settings file ([deploy/api.env.yaml](deploy/api.env.yaml)) |
+| Access | Both services **private**: a request without a Google identity token gets `403` | A public LLM application lets anyone spend its model budget |
+| Least privilege | `docagent-run` (api): Vertex AI user, read the bucket, read the secret. `docagent-front`: may only call the API, with an identity token from the metadata server | A leaked front end cannot read the data or call the models |
+
+Today the developer opens the front end through `gcloud run services proxy` (localhost, with her own Google identity), and builds and deploys with the commands in [deploy/README.md](deploy/README.md). Next: deployment from GitHub after the CI with Workload Identity Federation (no JSON key), every resource in Terraform, IAP for a demo link with Google sign-in, and Langfuse traces.
 
 ## API
 
@@ -324,7 +361,8 @@ question ──► embed (e5) ──► Qdrant: 20 nearest passages ──┐
 - LaTeX formulas and drop caps in scientific papers still cause a few overlaps.
 - Scanned PDFs (images without text) need OCR, not supported.
 - A small free model makes occasional translation mistakes; larger models will be compared in phase 6.
-- Agent: 45 to 115 seconds per request, about half of it the supervisor's reasoning; Gemini on Vertex AI is a shared model and sometimes answers "resource exhausted" (retried with growing pauses). With a small free tools' model (`open-mistral-nemo`) the review removes most points, so a request can end with little kept: the agent needs a stronger one (`TOOLS_MODEL=google/gemini-2.5-flash`, about 1.5 cent per request). The evaluation sets are small (25 requests, 11 statements, 2 runs of 4 requests per tools' model), and the routing and review sets have been used to tune the router and the review. Runs are kept in memory (one API process, one request at a time); the agent is not in the Docker image yet (it needs Google credentials).
+- Agent: 7 to 29 seconds per request with Gemini 3.8 Flash and 3.5 Flash-Lite; Gemini on Vertex AI is a shared model and sometimes answers "resource exhausted" or does not answer before the timeout (retried). With a small free tools' model (`open-mistral-nemo`) the review removes most points, so a request can end with little kept: the agent needs a stronger one (`TOOLS_MODEL=google/gemini-3.5-flash-lite`, under 1 cent per request with the supervisor). The evaluation sets are small (25 requests, 11 statements, 4 requests per run), and the routing and review sets have been used to tune the router and the review. Runs are kept in memory (one API process, one request at a time): a Cloud Run instance that stops loses them.
+- Cloud: the first visit after a quiet period waits for a cold start (about 1 min before the first search); the front end does not wait for it yet and shows "API unreachable" until the API answers. Hosted models get retired: the deployed model names are settings to re-evaluate.
 - Questions: the evaluation sets are small (24 and 15 questions), so differences of one or two questions are not significant. Cross-lingual search relies on the dense model alone, since BM25 needs shared words. The answer checks catch invented quotes and figures, not a true sentence taken from the wrong passage. Indexing with a local model takes about 45 min on a laptop CPU.
 
 ## Roadmap
@@ -333,7 +371,7 @@ question ──► embed (e5) ──► Qdrant: 20 nearest passages ──┐
 2. ~~**Translator v1**: LLM translation, FastAPI, Docker, web front end~~
 3. ~~**RAG**: hybrid search with page-level citations, verified answers, evaluation, Qdrant as a Docker service~~
 4. ~~**Agent**: LangGraph supervisor planning translate / ask / summarize / compare steps, reviewed results, API and front end, evaluation of the routing, the review and whole runs~~
-5. **Industrialization**: ~~tests and quality (pre-commit, mypy, coverage), CI on every push and pull request~~; deployment to Cloud Run with GitHub Actions and Workload Identity Federation, Terraform, tracing and cost monitoring (Langfuse)
+5. **Industrialization**: ~~tests and quality (pre-commit, mypy, coverage), CI on every push and pull request, deployment to Cloud Run (Cloud Build, private services, data in Cloud Storage)~~; automatic deployment from GitHub Actions with Workload Identity Federation, Terraform, IAP demo link, tracing and cost monitoring (Langfuse)
 6. **Watch agent (MCP)**: checks a short allowlist of publisher pages (IPCC, IEA, HCC) through the MCP Fetch server, spots new editions of the reports, asks before downloading, then indexes them; evaluated on recorded pages
 7. **Evaluation**: translation benchmark (COMET, chrF) against official IPCC French versions
 
@@ -345,10 +383,13 @@ src/docagent/translate/  # translators (fake, OpenAI-compatible LLM), cache, glo
 src/docagent/rag/        # passages, BM25, embeddings, Qdrant, fusion, search, answers, metrics
 src/docagent/agent/      # LangGraph agent: tools, supervisor, review, translation sub-graph, runs, trajectories
 src/docagent/chat.py     # small client for JSON answers from the LLM (fixed key or refreshed token)
-src/docagent/gcp.py      # Google sign-in for Vertex AI (application default credentials)
+src/docagent/gcp.py      # Google sign-in for Vertex AI, identity token for the private API on Cloud Run
+src/docagent/remote_data.py  # copies the index and the corpus PDFs from Cloud Storage at start-up
 src/docagent/api/        # FastAPI app: translation jobs, questions, agent runs
 front/app.py             # Streamlit front end (translate, ask, assistant)
 scripts/                 # translation, indexing, search, question, agent, evaluation and vector copy scripts
+cloudbuild.yaml          # image build on Cloud Build
+deploy/                  # Cloud Run settings of the API and deployment commands
 tests/                   # pytest suite (no network)
 evals/                   # question sets, agent requests and traps, results, saved answers and plans
 data/samples/            # public PDF excerpts (see data/SOURCES.md)

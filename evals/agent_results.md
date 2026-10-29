@@ -185,3 +185,71 @@ Points and answers kept by the review: 14 / 16. Tools cost: with TOOLS_PRICE_IN_
 Same verdict on every run: 11/11. Reviews that failed (nothing removed): 0.
 Judge call: median 8.7 s. Supervisor: 33 calls, 22821 tokens in, 1955 out, about $0.0481.
 Verdicts: evals/agent_runs/judge_2026-10-22_1311.json
+
+## 2026-10-28 11:01 · routing router-v4 · google/gemini-3.8-flash · 1 requests × 1 runs
+
+| requests | right plan |
+|---|---|
+| question | 1/1 (100 %) |
+| **all** | **1/1 (100 %)** |
+
+Wrong: none.
+Router call: median 2.8 s, max 2.8 s.
+Supervisor: 1 calls, 939 tokens in, 48 out, about $0.0009 ($0.00088 per request).
+Plans: evals/agent_runs/routing_2026-10-28_1101.json
+
+## 2026-10-28 11:43 · routing router-v4 · google/gemini-3.8-flash · 25 requests × 2 runs
+
+| requests | right plan |
+|---|---|
+| question | 10/10 (100 %) |
+| summary | 6/6 (100 %) |
+| comparison | 6/6 (100 %) |
+| translation | 4/4 (100 %) |
+| several steps | 8/8 (100 %) |
+| ambiguous (2 plans accepted) | 6/6 (100 %) |
+| unclear → question back | 2/4 (50 %) |
+| out of scope | 6/6 (100 %) |
+| **all** | **48/50 (96 %)** |
+
+Same plan on every run: 25/25 (100 %).
+Wrong: 
+- k2 (run 1): out_of_scope()
+- k2 (run 2): out_of_scope()
+Router call: median 6.2 s, max 149.9 s.
+Supervisor: 50 calls, 46920 tokens in, 2883 out, about $0.0460 ($0.00092 per request).
+Plans: evals/agent_runs/routing_2026-10-28_1143.json
+
+## 2026-10-28 11:46 · judge judge-v3 · google/gemini-3.8-flash · 11 statements × 3 runs
+
+| statements | removed by the judge | expected |
+|---|---|---|
+| traps (wrong meaning, right figures) | 15/15 (100 %) | all |
+| faithful | 0/15 (0 %) | none |
+| borderline (a nuance left out) | 0/3 (0 %) | - |
+
+Same verdict on every run: 11/11. Reviews that failed (nothing removed): 0.
+Judge call: median 3.4 s. Supervisor: 33 calls, 22821 tokens in, 1261 out, about $0.0218.
+Verdicts: evals/agent_runs/judge_2026-10-28_1146.json
+
+## 2026-10-28 11:49 · whole agent · supervisor google/gemini-3.8-flash · tools open-mistral-nemo
+
+| # | request | steps | duration | of which tools | supervisor calls | supervisor cost | tools cost | points kept by the judge |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Que dit le HCC sur les émissions des transports en 2024 ? | question | 68 s | 48 s | 2 | $0.0021 | $0.0014 | 0/1 |
+| 2 | Résume le rapport annuel 2025 du HCC | summarize | 18 s | 10 s | 2 | $0.0027 | $0.0076 | 4/4 |
+| 3 | Compare l'AIE et le GIEC sur les trajectoires compatibles avec 1,5 °C | compare | 16 s | 6 s | 2 | $0.0020 | $0.0026 | 2/2 |
+| 4 | Résume le rapport du HCC puis compare-le avec le GIEC sur les puits de carbone | summarize > compare | 102 s | 46 s | 3 | $0.0050 | $0.0111 | 3/4, 1/2 |
+
+Points and answers kept by the review: 10 / 13. Tools cost: with TOOLS_PRICE_IN_USD / TOOLS_PRICE_OUT_USD ("-": not set, or a free tier). Trajectories: 20261028-114609_eac29031.json, 20261028-114719_c5e8f39f.json, 20261028-114737_cc08c033.json, 20261028-114755_c115f5f3.json
+
+## 2026-10-28 15:32 · whole agent · supervisor google/gemini-3.8-flash · tools google/gemini-3.5-flash-lite
+
+| # | request | steps | duration | of which tools | supervisor calls | supervisor cost | tools cost | points kept by the judge |
+|---|---|---|---|---|---|---|---|---|
+| 1 | Que dit le HCC sur les émissions des transports en 2024 ? | question | 29 s | 21 s | 2 | $0.0018 | $0.0016 | 1/1 |
+| 2 | Résume le rapport annuel 2025 du HCC | summarize | 11 s | 3 s | 2 | $0.0030 | $0.0069 | 5/5 |
+| 3 | Compare l'AIE et le GIEC sur les trajectoires compatibles avec 1,5 °C | compare | 7 s | 1 s | 2 | $0.0015 | $0.0012 | 1/1 |
+| 4 | Résume le rapport du HCC puis compare-le avec le GIEC sur les puits de carbone | summarize > compare | 25 s | 4 s | 3 | $0.0049 | $0.0087 | 5/5, 2/2 |
+
+Points and answers kept by the review: 14 / 14. Tools cost: with TOOLS_PRICE_IN_USD / TOOLS_PRICE_OUT_USD ("-": not set, or a free tier). Trajectories: 20261028-153132_a37ec1db.json, 20261028-153202_f0caeee6.json, 20261028-153214_7e92fb2a.json, 20261028-153222_b934b199.json
