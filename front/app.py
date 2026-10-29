@@ -32,6 +32,10 @@ LANGUAGES = {
     "pt": "Português",
 }
 POLL_SECONDS = 1.5
+# On Cloud Run the API stops when nobody uses it: the first call waits for it to start
+# (the container, then the data and the model: about a minute).
+ON_CLOUD_RUN = bool(os.environ.get("K_SERVICE"))
+HEALTH_TIMEOUT_S = 90 if ON_CLOUD_RUN else 5
 EXAMPLES = [
     "Quelles sont les émissions du secteur de la production d'énergie en 2024 ?",
     "How much did global mean sea level rise between 1901 and 2018?",
@@ -73,16 +77,29 @@ def api(method: str, path: str, **kwargs) -> httpx.Response:
     identity token for the API, signed for the front's service account; locally, none.
     Raises ``httpx.HTTPError``."""
     headers = {}
-    if os.environ.get("K_SERVICE"):
+    if ON_CLOUD_RUN:
         headers["Authorization"] = f"Bearer {cached_identity_token(API_URL)}"
     return httpx.request(method, f"{API_URL}{path}", headers=headers, **kwargs)
 
 
-def api_health() -> dict | None:
+def error_detail(response: httpx.Response) -> str:
+    """The API's error message. Google's own refusals (403 before the API) are HTML."""
     try:
-        return api("GET", "/health", timeout=5).json()
-    except httpx.HTTPError:
-        return None
+        return str(response.json().get("detail"))
+    except ValueError:
+        return response.reason_phrase or "error"
+
+
+def api_health() -> tuple[dict | None, str]:
+    """GET /health and, when it fails, why: unreachable, or refused (a 403 here means
+    this front end may not call the API)."""
+    try:
+        response = api("GET", "/health", timeout=HEALTH_TIMEOUT_S)
+    except httpx.HTTPError as exc:
+        return None, f"unreachable ({type(exc).__name__})"
+    if response.status_code != 200:
+        return None, f"refused (HTTP {response.status_code}: {error_detail(response)})"
+    return response.json(), ""
 
 
 def render_page(pdf: bytes, number: int, zoom: float = 1.4) -> bytes:
@@ -110,9 +127,13 @@ def detect(name: str, pdf: bytes) -> dict | None:
 
 
 with st.sidebar:
-    health = api_health()
+    if ON_CLOUD_RUN:
+        with st.spinner("Waking the API up: up to a minute after a quiet period…"):
+            health, problem = api_health()
+    else:
+        health, problem = api_health()
     if health is None:
-        st.error(f"API unreachable at {API_URL}")
+        st.error(f"API {problem} at {API_URL}")
     else:
         st.success("API online")
         st.caption(f"Translator: {health['translator']} · LLM: {health['llm'] or '—'}")
@@ -163,7 +184,7 @@ def translation_tab(health: dict | None) -> None:
             timeout=60,
         )
         if response.status_code != 202:
-            st.error(f"Upload refused ({response.status_code}): {response.json().get('detail')}")
+            st.error(f"Upload refused ({response.status_code}): {error_detail(response)}")
             return
         job_id = response.json()["job_id"]
 
@@ -217,7 +238,7 @@ def ask(question: str, top_k: int) -> dict:
     except httpx.HTTPError as exc:
         return {"error": f"API unreachable: {exc}"}
     if response.status_code != 200:
-        return {"error": f"{response.status_code}: {response.json().get('detail')}"}
+        return {"error": f"{response.status_code}: {error_detail(response)}"}
     return response.json() | {"elapsed_s": time.perf_counter() - start}
 
 
@@ -288,7 +309,7 @@ def agent_call(method: str, path: str, **kwargs) -> dict:
     except httpx.HTTPError as exc:
         return {"api_error": f"API unreachable: {exc}"}
     if response.status_code >= 400:
-        return {"api_error": f"{response.status_code}: {response.json().get('detail')}"}
+        return {"api_error": f"{response.status_code}: {error_detail(response)}"}
     return response.json()
 
 

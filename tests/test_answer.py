@@ -269,6 +269,23 @@ def test_ask_endpoint_reports_a_missing_index_and_a_failing_llm(tmp_path):
     assert failing.post("/v1/ask", json={"question": "Sea level?"}).status_code == 502
 
 
+def test_a_refusal_of_the_model_provider_says_why(tmp_path):
+    """A 4xx of the provider (bad key, a retired model) is not retried: the API answers
+    502 with the provider's reason instead of a bare 500."""
+
+    class Refused:
+        def ask(self, question, top_k=None):
+            raise httpx.HTTPStatusError(
+                "HTTP 404: Publisher model gemini-2.5-flash was not found",
+                request=httpx.Request("POST", "https://vertex.example/chat/completions"),
+                response=httpx.Response(404),
+            )
+
+    response = api(tmp_path, Refused).post("/v1/ask", json={"question": "Sea level?"})
+    assert response.status_code == 502
+    assert "refused the request: HTTP 404: Publisher model" in response.json()["detail"]
+
+
 def test_warm_up_loads_the_index_at_start_and_answers_report_timings(tmp_path):
     import threading
     import time

@@ -66,6 +66,7 @@ def tools_chat_client(
         model=settings.tools_model,
         token=token,
         rate_limit_retries=settings.agent_rate_limit_retries,
+        timeout_s=settings.vertex_timeout_s,
         **common,
     )
 
@@ -120,13 +121,15 @@ class ChatClient:
         token: Callable[[], str] | None = None,
         max_requests: int | None = None,
         rate_limit_retries: int | None = None,
+        timeout_s: float | None = None,
     ) -> None:
         """``base_url``/``model``/``token`` override the settings for another provider;
         ``token`` returns a short-lived bearer token (e.g. Google's), asked before each
         request. ``max_requests``: at most that many answered requests (the ones billed;
         refused ones do not count), None = no limit. ``rate_limit_retries``: retries
         allowed for refusals for lack of capacity (429), on top of ``max_retries``: a
-        shared model that is busy for a minute is not an error worth giving up on."""
+        shared model that is busy for a minute is not an error worth giving up on.
+        ``timeout_s``: seconds to wait for one answer (default LLM_TIMEOUT_S)."""
         self.settings = settings or get_settings()
         self.base_url = (base_url or self.settings.resolved_base_url).rstrip("/")
         self.model = model or self.settings.resolved_model
@@ -134,7 +137,7 @@ class ChatClient:
         # A fixed key, unless a token provider is given; raises if a required key is missing.
         self._api_key = None if token else self.settings.resolved_api_key
         self.max_requests = max_requests
-        self.client = client or httpx.Client(timeout=self.settings.llm_timeout_s)
+        self.client = client or httpx.Client(timeout=timeout_s or self.settings.llm_timeout_s)
         self.sleep = sleep
         self.clock = clock
         self.temperature = temperature

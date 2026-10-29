@@ -30,6 +30,7 @@ its provider (``AGENT_PROVIDER=vertex``: Gemini on Vertex AI): it is called once
 per request, then once per step that makes claims. ``AGENT_MAX_CALLS`` caps its calls.
 """
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -382,16 +383,25 @@ def _where(sources) -> str:
     return "; ".join(dict.fromkeys(f"{s.title}, p. {s.page}" for s in sources))
 
 
+_MARKER_RE = re.compile(r"\s*\[\d{1,2}\]")
+
+
+def _without_markers(text: str) -> str:
+    """A point as the user reads it: the [n] markers number the excerpts the model was
+    given, which the user never sees; the report and page follow the point instead."""
+    return re.sub(r"\s+([.,;:])", r"\1", _MARKER_RE.sub("", text)).strip()
+
+
 def _comparison_lines(point) -> list[str]:
     """A comparison point, easy to scan: the aspect, one line per report, then its pages.
 
     - **Efficacité des puits de carbone**
-        - Haut Conseil pour le climat: Les puits perdent en efficacité… [1]
-        - GIEC AR6 GTI: Les puits deviennent moins efficaces… [2]
+        - Haut Conseil pour le climat: Les puits perdent en efficacité…
+        - GIEC AR6 GTI: Les puits deviennent moins efficaces…
         - (HCC, p. 57; GIEC, p. 26)
     """
     lines = [f"- **{point.aspect}**" if point.aspect else "-"]
-    lines += [f"    - {side.title}: {side.says}" for side in point.sides]
+    lines += [f"    - {side.title}: {_without_markers(side.says)}" for side in point.sides]
     if point.note:
         lines.append(f"    - {point.note}")
     lines.append(f"    - ({_where(_point_sources(point))})")
@@ -578,7 +588,7 @@ def build_supervisor(tools: Toolbox, agent_chat: ChatClient | None = None, check
                 lines += (
                     _comparison_lines(p)
                     if plan.route == "compare"
-                    else [f"- {p.text} ({_where(_point_sources(p))})"]
+                    else [f"- {_without_markers(p.text)} ({_where(_point_sources(p))})"]
                 )
         if removed:
             lines.append(text["removed"].format(n=len(removed), problems=" ; ".join(removed)))
@@ -707,6 +717,7 @@ def agent_chat_client(settings: Settings, token: Callable[[], str] | None = None
             base_url=settings.vertex_base_url,
             model=settings.agent_model,
             token=token,
+            timeout_s=settings.vertex_timeout_s,
             **common,
         )
     if settings.agent_model:

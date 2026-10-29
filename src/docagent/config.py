@@ -102,6 +102,10 @@ class Settings(BaseSettings):
     # A shared model (Gemini on Vertex AI) answers 429 when it is busy: retry this many
     # more times, with growing pauses (5, 10, 20 s...), before giving up.
     agent_rate_limit_retries: int = 3
+    # Seconds to wait for one answer of a model on Vertex AI (supervisor, tools) before
+    # asking again: a call takes 2 to 15 s, but now and then one never answers, and the
+    # default 120 s (LLM_TIMEOUT_S, sized for the translator's long pages) is a long wait.
+    vertex_timeout_s: float = 45.0
     # One JSON per request (plan, nodes, durations, cost); None: not saved.
     agent_trajectories_dir: Path | None = Path("data/trajectories")
     agent_price_in_usd: float | None = None  # per 1M tokens, for the cost estimate
