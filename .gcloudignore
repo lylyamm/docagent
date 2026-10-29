@@ -1,0 +1,20 @@
+# Files NOT uploaded to Cloud Build (the .dockerignore of the upload itself).
+.gcloudignore
+.git/
+.gitignore
+.env
+.venv/
+.cache/
+.jobs/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+.vscode/
+**/__pycache__/
+tests/
+evals/
+docs/
+data/*
+!data/glossary_*.json
+!data/corpus.json

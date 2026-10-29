@@ -1,0 +1,299 @@
+[
+  {
+    "item": "A-true",
+    "kind": "true",
+    "run": 1,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 8.61
+  },
+  {
+    "item": "A-trap",
+    "kind": "trap",
+    "run": 1,
+    "judged": true,
+    "removed": true,
+    "problem": "L'affirmation inverse les chiffres des deux décennies et conclut à un ralentissement, alors que le passage indique une accélération de la montée du niveau des océans (4,3 mm/an sur 2013-2023 contre 2,1 mm/an sur 1993-2002).",
+    "duration_s": 6.33
+  },
+  {
+    "item": "B-true",
+    "kind": "true",
+    "run": 1,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 2.28
+  },
+  {
+    "item": "B-trap",
+    "kind": "trap",
+    "run": 1,
+    "judged": true,
+    "removed": true,
+    "problem": "Les pourcentages de réduction de la capacité d'absorption ont été inversés entre le puits océanique (5,9 %) et le puits terrestre (27 %).",
+    "duration_s": 3.91
+  },
+  {
+    "item": "B-borderline",
+    "kind": "borderline",
+    "run": 1,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 3.7
+  },
+  {
+    "item": "C-true",
+    "kind": "true",
+    "run": 1,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 8.84
+  },
+  {
+    "item": "C-trap",
+    "kind": "trap",
+    "run": 1,
+    "judged": true,
+    "removed": true,
+    "problem": "The statement swaps the warming figures for land and ocean, incorrectly claiming there was more warming over the ocean than over land.",
+    "duration_s": 2.66
+  },
+  {
+    "item": "D-true",
+    "kind": "true",
+    "run": 1,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 16.05
+  },
+  {
+    "item": "D-trap",
+    "kind": "trap",
+    "run": 1,
+    "judged": true,
+    "removed": true,
+    "problem": "L'affirmation inverse les chiffres du budget carbone et des émissions réelles, et contredit le texte en affirmant que le budget a été respecté alors qu'il a été dépassé.",
+    "duration_s": 2.8
+  },
+  {
+    "item": "E-true",
+    "kind": "true",
+    "run": 1,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 3.58
+  },
+  {
+    "item": "E-trap",
+    "kind": "trap",
+    "run": 1,
+    "judged": true,
+    "removed": true,
+    "problem": "Le passage indique que les émissions ont atteint un niveau record en 2024, ce qui contredit l'affirmation selon laquelle elles ont baissé.",
+    "duration_s": 24.62
+  },
+  {
+    "item": "A-true",
+    "kind": "true",
+    "run": 2,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 4.5
+  },
+  {
+    "item": "A-trap",
+    "kind": "trap",
+    "run": 2,
+    "judged": true,
+    "removed": true,
+    "problem": "Les chiffres attribués aux deux décennies sont inversés, ce qui contredit le passage selon lequel la hausse s'accélère (+4,3 mm/an sur 2013-2023 contre +2,1 mm/an sur 1993-2002).",
+    "duration_s": 3.36
+  },
+  {
+    "item": "B-true",
+    "kind": "true",
+    "run": 2,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 2.45
+  },
+  {
+    "item": "B-trap",
+    "kind": "trap",
+    "run": 2,
+    "judged": true,
+    "removed": true,
+    "problem": "Les pourcentages de réduction sont inversés entre le puits océanique (5,9 % dans le passage) et le puits terrestre (27 % dans le passage).",
+    "duration_s": 2.3
+  },
+  {
+    "item": "B-borderline",
+    "kind": "borderline",
+    "run": 2,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 10.56
+  },
+  {
+    "item": "C-true",
+    "kind": "true",
+    "run": 2,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 2.67
+  },
+  {
+    "item": "C-trap",
+    "kind": "trap",
+    "run": 2,
+    "judged": true,
+    "removed": true,
+    "problem": "The statement swaps the warming figures between land and ocean, incorrectly claiming there was more warming over the ocean than over land.",
+    "duration_s": 2.61
+  },
+  {
+    "item": "D-true",
+    "kind": "true",
+    "run": 2,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 4.75
+  },
+  {
+    "item": "D-trap",
+    "kind": "trap",
+    "run": 2,
+    "judged": true,
+    "removed": true,
+    "problem": "Les chiffres et la signification sont inversés : les émissions s'élèvent à 124,9 Mt éqCO2 et ont dépassé le budget indicatif fixé à 120 Mt éqCO2.",
+    "duration_s": 2.34
+  },
+  {
+    "item": "E-true",
+    "kind": "true",
+    "run": 2,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 2.66
+  },
+  {
+    "item": "E-trap",
+    "kind": "trap",
+    "run": 2,
+    "judged": true,
+    "removed": true,
+    "problem": "Le passage indique que les émissions ont atteint un volume record en 2024, ce qui contredit l'affirmation selon laquelle elles ont baissé.",
+    "duration_s": 2.3
+  },
+  {
+    "item": "A-true",
+    "kind": "true",
+    "run": 3,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 3.36
+  },
+  {
+    "item": "A-trap",
+    "kind": "trap",
+    "run": 3,
+    "judged": true,
+    "removed": true,
+    "problem": "Les chiffres des deux décennies ont été inversés, ce qui contredit le texte affirmant que la hausse s'accélère au lieu de ralentir.",
+    "duration_s": 3.5
+  },
+  {
+    "item": "B-true",
+    "kind": "true",
+    "run": 3,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 2.41
+  },
+  {
+    "item": "B-trap",
+    "kind": "trap",
+    "run": 3,
+    "judged": true,
+    "removed": true,
+    "problem": "Les pourcentages de réduction de la capacité d'absorption ont été inversés entre le puits océanique (5,9 %) et le puits terrestre (27 %).",
+    "duration_s": 4.77
+  },
+  {
+    "item": "B-borderline",
+    "kind": "borderline",
+    "run": 3,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 3.98
+  },
+  {
+    "item": "C-true",
+    "kind": "true",
+    "run": 3,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 2.28
+  },
+  {
+    "item": "C-trap",
+    "kind": "trap",
+    "run": 3,
+    "judged": true,
+    "removed": true,
+    "problem": "The statement switches the figures for land and ocean, claiming there was more warming over the ocean (1.59 °C) than over land (0.88 °C) instead of larger increases over land than over the ocean.",
+    "duration_s": 4.62
+  },
+  {
+    "item": "D-true",
+    "kind": "true",
+    "run": 3,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 2.11
+  },
+  {
+    "item": "D-trap",
+    "kind": "trap",
+    "run": 3,
+    "judged": true,
+    "removed": true,
+    "problem": "Les chiffres sont inversés et contredisent le texte : les émissions s'élèvent à 124,9 Mt éqCO2 et ont dépassé le budget indicatif fixé à 120 Mt éqCO2.",
+    "duration_s": 3.59
+  },
+  {
+    "item": "E-true",
+    "kind": "true",
+    "run": 3,
+    "judged": true,
+    "removed": false,
+    "problem": "",
+    "duration_s": 1.73
+  },
+  {
+    "item": "E-trap",
+    "kind": "trap",
+    "run": 3,
+    "judged": true,
+    "removed": true,
+    "problem": "Le passage indique que les émissions ont atteint un volume record en 2024, et non qu'elles ont baissé.",
+    "duration_s": 2.7
+  }
+]

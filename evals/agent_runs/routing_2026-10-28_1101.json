@@ -1,0 +1,36 @@
+[
+  {
+    "id": "q1",
+    "category": "question",
+    "run": 1,
+    "ok": true,
+    "signature": "question()",
+    "error": null,
+    "fixed_by_code": false,
+    "raw": {
+      "steps": [
+        {
+          "route": "question",
+          "question": "Que dit le HCC sur les émissions des transports en 2024 ?",
+          "doc_ids": [],
+          "topic": "",
+          "path": "",
+          "target_lang": "",
+          "reply": ""
+        }
+      ]
+    },
+    "plans": [
+      {
+        "route": "question",
+        "question": "Que dit le HCC sur les émissions des transports en 2024 ?",
+        "doc_ids": [],
+        "topic": "",
+        "path": "",
+        "target_lang": "fr",
+        "reply": ""
+      }
+    ],
+    "duration_s": 2.8
+  }
+]

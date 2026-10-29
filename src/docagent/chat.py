@@ -54,7 +54,7 @@ def tools_chat_client(
         return ChatClient(settings, **common)
     if not settings.tools_model:
         raise RuntimeError(
-            "TOOLS_MODEL is required with TOOLS_PROVIDER=vertex (e.g. google/gemini-2.5-flash)"
+            "TOOLS_MODEL is required with TOOLS_PROVIDER=vertex (e.g. google/gemini-3.5-flash-lite)"
         )
     if token is None:
         from .gcp import google_token

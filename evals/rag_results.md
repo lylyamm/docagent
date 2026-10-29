@@ -272,3 +272,25 @@ Paired tests against original: questions won / lost, two-sided p.
 - missed in the top 5 by both: q03
 - missed in the top 5 by bm25 both: q07, q17
 - missed in the top 5 by bm25 x2: q17, q24
+
+## 2026-10-28 11:49 · rag_test_questions.jsonl · answers ask-v3.4 · open-mistral-nemo · embedder e5 · top 5
+
+| questions | right page given to the model | answered | cited the right page | cited it, when it was given |
+|---|---|---|---|---|
+| with an answer (15) | 13/15 | 12/15 | 11/15 | 11/13 |
+
+Without an answer in the reports: refused 4/4 (answered anyway: none).
+Missed: t02, t11, t12, t15. Answers to read: evals/answers/2026-10-28_1149.jsonl
+Refused although the right page was given: t02: figures not in the cited excerpts (2025); t15: figures not in the cited excerpts (2012, 4.000).
+LLM: 19 requests, 30285 tokens in, 2819 out.
+
+## 2026-10-28 15:33 · rag_test_questions.jsonl · answers ask-v3.4 · google/gemini-3.5-flash-lite · embedder e5 · top 5
+
+| questions | right page given to the model | answered | cited the right page | cited it, when it was given |
+|---|---|---|---|---|
+| with an answer (15) | 13/15 | 14/15 | 13/15 | 13/13 |
+
+Without an answer in the reports: refused 4/4 (answered anyway: none).
+Missed: t11, t12. Answers to read: evals/answers/2026-10-28_1533.jsonl
+Refused although the right page was given: none.
+LLM: 19 requests, 30175 tokens in, 2012 out.

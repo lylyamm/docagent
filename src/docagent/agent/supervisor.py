@@ -682,7 +682,7 @@ def agent_chat_client(settings: Settings, token: Callable[[], str] | None = None
     """The supervisor's model.
 
     - AGENT_PROVIDER=same: the tools' provider, with AGENT_MODEL if set.
-    - AGENT_PROVIDER=vertex: AGENT_MODEL (e.g. ``google/gemini-2.5-pro``) on Vertex AI,
+    - AGENT_PROVIDER=vertex: AGENT_MODEL (e.g. ``google/gemini-3.8-flash``) on Vertex AI,
       signed in with Google's application default credentials (``token``: for tests).
 
     At most AGENT_MAX_CALLS requests per client, retries included (0 = no limit).
@@ -696,7 +696,7 @@ def agent_chat_client(settings: Settings, token: Callable[[], str] | None = None
     if settings.agent_provider == "vertex":
         if not settings.agent_model:
             raise RuntimeError(
-                "AGENT_MODEL is required with AGENT_PROVIDER=vertex (e.g. google/gemini-2.5-pro)"
+                "AGENT_MODEL is required with AGENT_PROVIDER=vertex (e.g. google/gemini-3.8-flash)"
             )
         if token is None:
             from ..gcp import google_token
