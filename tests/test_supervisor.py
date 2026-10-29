@@ -111,7 +111,7 @@ def test_a_summary_keeps_only_the_points_the_judge_accepts(tmp_path):
     state, _ = ask(graph, "Résume le rapport 2 sur le niveau de la mer")
     message = state["message"]
     assert message.startswith("Résumé de Report 2 (à partir des 1 passages")
-    assert "- La mer a monté de 0.20 m [1]. (Report 2, p. 12)" in message
+    assert "- La mer a monté de 0.20 m. (Report 2, p. 12)" in message  # no [n]: unseen excerpts
     assert "glaciers" not in message.split("\n")[1]
     assert "1 point(s) retiré(s) à la relecture : la citation ne parle pas des glaciers" in message
 
@@ -128,8 +128,8 @@ def test_a_comparison_goes_through_the_same_review(tmp_path):
     )
     state, _ = ask(graph, "Compare les rapports 2 et 3")
     assert state["message"].startswith("Comparaison sur « chiffres clés » :")
-    assert (  # one line per report, then the pages (compare-v4 layout)
-        "- **Chiffres**\n    - Report 2: 0.20 m [1].\n    - Report 3: 580 milliards [2].\n"
+    assert (  # one line per report, then the pages; no [n] markers (unseen excerpt numbers)
+        "- **Chiffres**\n    - Report 2: 0.20 m.\n    - Report 3: 580 milliards.\n"
         "    - (Report 2, p. 12; Report 3, p. 13)"
     ) in state["message"]
 
@@ -196,7 +196,7 @@ def test_when_the_judge_fails_the_checked_points_stay_marked_not_reviewed(tmp_pa
         tool=[{"points": [point]}],
     )
     state, _ = ask(graph, "Résume le rapport 2")
-    assert "- La mer a monté de 0.20 m [1]." in state["message"]
+    assert "- La mer a monté de 0.20 m. (Report 2, p. 12)" in state["message"]
     assert state["message"].endswith("(Réponse non relue : le superviseur n'a pas pu la vérifier.)")
 
 
@@ -251,7 +251,7 @@ def test_vertex_endpoint_and_token():
     settings = Settings(
         _env_file=None,
         agent_provider="vertex",
-        agent_model="google/gemini-2.5-pro",
+        agent_model="google/gemini-3.8-flash",
         vertex_project="projetlilia",
         agent_max_calls=10,
     )
@@ -271,14 +271,15 @@ def test_vertex_endpoint_and_token():
 
     tokens = iter(["tok-1", "tok-2"])
     client = agent_chat_client(settings, token=lambda: next(tokens))  # no Mistral key needed
+    assert client.client.timeout.read == settings.vertex_timeout_s  # not the translator's 120 s
     client.client = httpx.Client(transport=httpx.MockTransport(handler))
     client.sleep = lambda s: None
-    assert (client.model, client.max_requests) == ("google/gemini-2.5-pro", 10)
+    assert (client.model, client.max_requests) == ("google/gemini-3.8-flash", 10)
     for _ in range(2):
         client.complete_json([{"role": "user", "content": "x"}], LLMRoute)
     assert [url for url, _, _ in seen] == [f"{root}/endpoints/openapi/chat/completions"] * 2
     assert [auth for _, auth, _ in seen] == ["Bearer tok-1", "Bearer tok-2"]  # asked each time
-    assert json.loads(seen[0][2])["model"] == "google/gemini-2.5-pro"
+    assert json.loads(seen[0][2])["model"] == "google/gemini-3.8-flash"
 
     with pytest.raises(RuntimeError, match="AGENT_MODEL is required"):
         agent_chat_client(settings.model_copy(update={"agent_model": None}), token=lambda: "t")
@@ -294,17 +295,19 @@ def test_the_tools_model_can_be_on_vertex_too():
         mistral_api_key="k",
         llm_model="open-mistral-nemo",
         tools_provider="vertex",
-        tools_model="google/gemini-2.5-flash",
+        tools_model="google/gemini-3.5-flash-lite",
         vertex_project="projetlilia",
     )
     client = tools_chat_client(settings, token=lambda: "tok")
-    assert client.model == "google/gemini-2.5-flash"
+    assert client.model == "google/gemini-3.5-flash-lite"
     assert client.base_url.endswith("/projects/projetlilia/locations/global/endpoints/openapi")
     assert (client.temperature, client.max_requests) == (0.0, None)
     assert client.rate_limit_retries == settings.agent_rate_limit_retries  # busy model: wait
+    assert client.client.timeout.read == settings.vertex_timeout_s
 
     same = tools_chat_client(settings.model_copy(update={"tools_provider": "same"}))
     assert (same.model, same.rate_limit_retries) == ("open-mistral-nemo", 0)
+    assert same.client.timeout.read == settings.llm_timeout_s
     with pytest.raises(RuntimeError, match="TOOLS_MODEL is required"):
         tools_chat_client(settings.model_copy(update={"tools_model": None}), token=lambda: "t")
 

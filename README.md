@@ -158,7 +158,7 @@ The last run, with Gemini 2.5 Flash and judge-v3 (22 October 2026):
 
 - **One regression, kept in view**: « Résume le rapport de l'ADEME 2024 », a report that is not indexed, is now classed out of scope instead of getting a question back with the reports available (2 runs out of 2). The request set is a development set, so a rule written for it would make the next score optimistic.
 - **A more lenient judge on omissions**: 3.8 Flash keeps a statement that leaves out a nuance, where 2.5 Pro removed it; it still removes every trap. No verdict was expected for that statement.
-- **Seen on the new models**: 4 router calls out of 50 waited for the 120 s timeout before a successful retry; Flash-Lite sometimes drops French accents in comparison points.
+- **Seen on the new models**: 4 router calls out of 50 waited for the 120 s timeout before a successful retry (the Gemini calls now give up after 45 s, `VERTEX_TIMEOUT_S`); Flash-Lite sometimes drops French accents and apostrophes in comparison points: compare-v5 asks for them, and the next run still had one comparison out of two without (« depassement de l objectif »).
 
 Every run is in [evals/agent_results.md](evals/agent_results.md), every plan and verdict in [evals/agent_runs/](evals/agent_runs/).
 
@@ -362,7 +362,7 @@ question ──► embed (e5) ──► Qdrant: 20 nearest passages ──┐
 - Scanned PDFs (images without text) need OCR, not supported.
 - A small free model makes occasional translation mistakes; larger models will be compared in phase 6.
 - Agent: 7 to 29 seconds per request with Gemini 3.8 Flash and 3.5 Flash-Lite; Gemini on Vertex AI is a shared model and sometimes answers "resource exhausted" or does not answer before the timeout (retried). With a small free tools' model (`open-mistral-nemo`) the review removes most points, so a request can end with little kept: the agent needs a stronger one (`TOOLS_MODEL=google/gemini-3.5-flash-lite`, under 1 cent per request with the supervisor). The evaluation sets are small (25 requests, 11 statements, 4 requests per run), and the routing and review sets have been used to tune the router and the review. Runs are kept in memory (one API process, one request at a time): a Cloud Run instance that stops loses them.
-- Cloud: the first visit after a quiet period waits for a cold start (about 1 min before the first search); the front end does not wait for it yet and shows "API unreachable" until the API answers. Hosted models get retired: the deployed model names are settings to re-evaluate.
+- Cloud: the first visit after a quiet period waits for a cold start (about 1 min before the first search); the front end waits for it (up to 90 s) with a message. Hosted models get retired: the deployed model names are settings to re-evaluate.
 - Questions: the evaluation sets are small (24 and 15 questions), so differences of one or two questions are not significant. Cross-lingual search relies on the dense model alone, since BM25 needs shared words. The answer checks catch invented quotes and figures, not a true sentence taken from the wrong passage. Indexing with a local model takes about 45 min on a laptop CPU.
 
 ## Roadmap

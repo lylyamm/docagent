@@ -195,7 +195,9 @@ def check_points(
 # code), and an aspect that one report alone addresses is "only_in", not a difference.
 # v4: one short sentence per side; the agent asks for 3 points (a comparison is read in
 # a chat window: 4-5 points of 5-8 lines each were too long to read).
-COMPARE_PROMPT_VERSION = "compare-v4"
+# v5: "with the accents of {language}": Gemini 3.5 Flash-Lite sometimes wrote French
+# without accents ("emises", "absorbees"), in the comparison only.
+COMPARE_PROMPT_VERSION = "compare-v5"
 
 COMPARE_SYSTEM_PROMPT = """You compare what climate and energy reports (IPCC, IEA, \
 French High Council on Climate) say about a topic, using ONLY the numbered excerpts you \
@@ -220,7 +222,8 @@ Rules:
 the excerpt's language), with their excerpt numbers n.
 - Every figure of a side must appear in one of its quoted sentences. Copy numbers and \
 units exactly; never convert, round or compute.
-- Do not use outside knowledge. Write "aspect" and "says" in {language}, without markdown.
+- Do not use outside knowledge. Write "aspect" and "says" in {language}, with its \
+accents and spelling, without markdown.
 
 Answer with JSON only:
 {{"points": [{{"kind": "agreement" | "difference" | "only_in", "aspect": "...", \

@@ -22,6 +22,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Annotated
 
+import httpx
 import pymupdf
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -257,6 +258,9 @@ def create_app(
         except ChatError as exc:
             logger.warning("ask failed: %s", exc)
             raise HTTPException(502, "the language model did not give a valid answer") from exc
+        except httpx.HTTPStatusError as exc:  # the provider refused: bad key, model retired...
+            logger.error("ask refused by the model provider: %s", exc)
+            raise HTTPException(502, f"the model provider refused the request: {exc}") from exc
         logger.info(
             "question answered",
             extra={
