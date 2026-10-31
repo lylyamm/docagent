@@ -50,9 +50,20 @@ jobs:
         run: echo "TAG=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
 
       - name: Build the image (Cloud Build)
+        # --async, then the build's status every 20 s: streaming its log here would need
+        # read access to the whole project (Viewer). The log is in the Cloud Build page.
         run: |
-          gcloud builds submit --config cloudbuild.yaml --region "$REGION" --project "$PROJECT" \
-            --substitutions "_TAG=$TAG" --suppress-logs
+          BUILD=$(gcloud builds submit --config cloudbuild.yaml --region "$REGION" --project "$PROJECT" \
+            --substitutions "_TAG=$TAG" --async --format='value(id)')
+          echo "Build log: https://console.cloud.google.com/cloud-build/builds;region=$REGION/$BUILD?project=$PROJECT"
+          while true; do
+            STATUS=$(gcloud builds describe "$BUILD" --region "$REGION" --project "$PROJECT" --format='value(status)')
+            case "$STATUS" in
+              QUEUED|PENDING|WORKING) sleep 20 ;;
+              SUCCESS) echo "Build $STATUS"; break ;;
+              *) echo "Build $STATUS"; exit 1 ;;
+            esac
+          done
 
       - name: Deploy the API
         run: |
