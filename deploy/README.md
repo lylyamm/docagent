@@ -1,8 +1,10 @@
 # Deployment on Cloud Run
 
-The commands used to deploy DocAgent on Google Cloud, by hand, until they move to
-GitHub Actions (automatic deployment) and Terraform (every resource as code).
-PowerShell syntax (a backtick continues the line); in bash, use `\`.
+How DocAgent is deployed on Google Cloud. Every push to `main` that passes the CI is
+deployed by [deploy.yml](../.github/workflows/deploy.yml) (see *Automatic deployment*);
+the manual commands below do the same by hand. The resources were created by hand,
+before Terraform (every resource as code). PowerShell syntax (a backtick continues the
+line); in bash, use `\`.
 
 Project `docagent-lilia`, region `europe-west9` (Paris). The architecture is in the
 main [README](../README.md#deployment-on-google-cloud).
@@ -18,6 +20,8 @@ Created once, by hand (Terraform later):
 | Secret | `mistral-api-key` | the translator's key, created in the console, never typed in a terminal |
 | Service account | `docagent-run` | the API: `roles/aiplatform.user` (project), `roles/storage.objectViewer` (bucket), `roles/secretmanager.secretAccessor` (secret) |
 | Service account | `docagent-front` | the front end: `roles/run.invoker` on the API only |
+| Service account | `docagent-deployer` | GitHub Actions, see *Automatic deployment* |
+| Workload Identity pool and provider | `github` / `docagent-repo` | accepts GitHub's tokens for `lylyamm/docagent` on `main` only |
 
 Data, after building the index locally (see the main README):
 
@@ -112,3 +116,50 @@ gcloud logging read "resource.type=cloud_run_revision AND resource.labels.servic
 
 After a quiet period the first call waits for a cold start: about a minute before the
 API has copied the data (`data downloaded`) and loaded the model (`search index ready`).
+
+## Automatic deployment (GitHub Actions)
+
+[deploy.yml](../.github/workflows/deploy.yml) runs after a successful CI on a push to
+`main` (or by hand, *Run workflow*): Cloud Build builds the image tagged with the commit,
+the API then the front end get a new revision with the settings of this folder, then
+`GET /health` is called with an identity token. Everything happens in the job's log.
+
+**No key in GitHub: Workload Identity Federation.** Each run receives a token signed by
+GitHub that says which repository and branch it runs for. Google's Security Token
+Service checks the signature and the pool's condition (`lylyamm/docagent`, `refs/heads/main`),
+then gives a one-hour token of `docagent-deployer`.
+
+```powershell
+gcloud iam workload-identity-pools create github --project docagent-lilia --location global --display-name "GitHub Actions"
+gcloud iam workload-identity-pools providers create-oidc docagent-repo `
+  --project docagent-lilia --location global --workload-identity-pool github `
+  --issuer-uri "https://token.actions.githubusercontent.com" `
+  --attribute-mapping "google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.ref=assertion.ref" `
+  --attribute-condition "assertion.repository == 'lylyamm/docagent' && assertion.ref == 'refs/heads/main'"
+gcloud iam service-accounts add-iam-policy-binding docagent-deployer@docagent-lilia.iam.gserviceaccount.com `
+  --project docagent-lilia --role roles/iam.workloadIdentityUser `
+  --member "principalSet://iam.googleapis.com/projects/51066993529/locations/global/workloadIdentityPools/github/attribute.repository/lylyamm/docagent"
+```
+
+What `docagent-deployer` may do, and nothing else:
+
+| Role | On | Why |
+| --- | --- | --- |
+| `roles/cloudbuild.builds.editor`, `roles/serviceusage.serviceUsageConsumer` | project | start a build |
+| `roles/storage.objectAdmin`, `roles/storage.legacyBucketReader` | bucket `docagent-lilia_cloudbuild` | upload the code to build |
+| `roles/run.developer` | project | new revisions of the services (not their access) |
+| `roles/iam.serviceAccountUser` | the Cloud Build account, `docagent-run`, `docagent-front` | run the build and the services as these accounts |
+| `roles/run.invoker` | `docagent-api` | the `/health` check |
+
+The deployment does not pass `--no-allow-unauthenticated`: access is set once, and
+`run.developer` may not change it. The build log is not streamed in the job
+(`--suppress-logs`, which would need read access to the whole project): it is in the
+Cloud Build page of the console.
+
+**Old images.** The registry keeps the 3 most recent images and deletes the others
+after a day ([registry-cleanup.json](registry-cleanup.json)):
+
+```powershell
+gcloud artifacts repositories set-cleanup-policies docagent --project docagent-lilia --location europe-west9 `
+  --policy deploy/registry-cleanup.json --no-dry-run
+```

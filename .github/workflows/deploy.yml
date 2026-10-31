@@ -1,0 +1,91 @@
+name: Deploy
+
+# After a green CI on main: build the image on Cloud Build, deploy the API then the
+# front end on Cloud Run, then check /health. No key in GitHub: Workload Identity
+# Federation gives a one-hour token of docagent-deployer (see deploy/README.md).
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # the GitHub token exchanged for a Google token
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false # never stop a deployment halfway
+
+env:
+  PROJECT: docagent-lilia
+  REGION: europe-west9
+  IMAGE: europe-west9-docker.pkg.dev/docagent-lilia/docagent/docagent
+  API_URL: https://docagent-api-51066993529.europe-west9.run.app
+  PROVIDER: projects/51066993529/locations/global/workloadIdentityPools/github/providers/docagent-repo
+  DEPLOYER: docagent-deployer@docagent-lilia.iam.gserviceaccount.com
+
+jobs:
+  deploy:
+    # CI ends on every push and pull request: deploy only after a green CI on a push to main
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.PROVIDER }}
+          service_account: ${{ env.DEPLOYER }}
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - name: Image tag (the commit)
+        run: echo "TAG=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+
+      - name: Build the image (Cloud Build)
+        run: |
+          gcloud builds submit --config cloudbuild.yaml --region "$REGION" --project "$PROJECT" \
+            --substitutions "_TAG=$TAG" --suppress-logs
+
+      - name: Deploy the API
+        run: |
+          gcloud run deploy docagent-api --image "$IMAGE:$TAG" \
+            --region "$REGION" --project "$PROJECT" \
+            --service-account "docagent-run@$PROJECT.iam.gserviceaccount.com" \
+            --port 8000 --cpu 2 --memory 4Gi \
+            --min-instances 0 --max-instances 1 \
+            --no-cpu-throttling --cpu-boost \
+            --env-vars-file deploy/api.env.yaml \
+            --set-secrets MISTRAL_API_KEY=mistral-api-key:latest
+
+      - name: Deploy the front end
+        run: |
+          gcloud run deploy docagent-front --image "$IMAGE:$TAG" \
+            --region "$REGION" --project "$PROJECT" \
+            --service-account "docagent-front@$PROJECT.iam.gserviceaccount.com" \
+            --port 8501 --cpu 1 --memory 1Gi \
+            --min-instances 0 --max-instances 1 \
+            --session-affinity --timeout 3600 \
+            --command streamlit \
+            --args "run,front/app.py,--server.port=8501,--server.address=0.0.0.0,--server.headless=true" \
+            --set-env-vars "DOCAGENT_API_URL=$API_URL"
+
+      - id: token
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.PROVIDER }}
+          service_account: ${{ env.DEPLOYER }}
+          token_format: id_token
+          id_token_audience: ${{ env.API_URL }}
+
+      - name: Smoke test (GET /health)
+        run: |
+          curl --fail --silent --show-error --max-time 120 --retry 3 --retry-delay 15 \
+            -H "Authorization: Bearer ${{ steps.token.outputs.id_token }}" "$API_URL/health"

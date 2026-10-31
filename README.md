@@ -10,7 +10,7 @@ Work with climate and energy reports (IPCC, IEA, French High Council on Climate)
 
 ![IPCC Summary for Policymakers, page 6: original on the left, DocAgent's French translation on the right](docs/images/giec_chart.png)
 
-**Status:** v0.4, translator + question answering (RAG) + LangGraph agent, deployed on Google Cloud Run (private services, see [Deployment](#deployment-on-google-cloud)). Next: automatic deployment from GitHub, Terraform, tracing, then a watch agent with MCP (see [Roadmap](#roadmap)).
+**Status:** v0.4, translator + question answering (RAG) + LangGraph agent, deployed on Google Cloud Run (private services, see [Deployment](#deployment-on-google-cloud)). Every merge on `main` is tested, built and deployed by GitHub Actions without any stored key. Next: Terraform, tracing, then a watch agent with MCP (see [Roadmap](#roadmap)).
 
 ## What it does
 
@@ -283,7 +283,7 @@ The whole application runs on Cloud Run in Paris (`europe-west9`), built from th
 | Access | Both services **private**: a request without a Google identity token gets `403` | A public LLM application lets anyone spend its model budget |
 | Least privilege | `docagent-run` (api): Vertex AI user, read the bucket, read the secret. `docagent-front`: may only call the API, with an identity token from the metadata server | A leaked front end cannot read the data or call the models |
 
-Today the developer opens the front end through `gcloud run services proxy` (localhost, with her own Google identity), and builds and deploys with the commands in [deploy/README.md](deploy/README.md). Next: deployment from GitHub after the CI with Workload Identity Federation (no JSON key), every resource in Terraform, IAP for a demo link with Google sign-in, and Langfuse traces.
+Today the developer opens the front end through `gcloud run services proxy` (localhost, with her own Google identity), Every push to `main` that passes the CI is deployed by [.github/workflows/deploy.yml](.github/workflows/deploy.yml): Cloud Build builds the image tagged with the commit, both services get a new revision, then `GET /health` is called with an identity token. GitHub holds no key: **Workload Identity Federation** exchanges the workflow's signed GitHub token for a one-hour Google token of `docagent-deployer`, and only for this repository's `main` branch. That account can build, deploy new revisions and call `/health`, nothing else (it cannot read the data, the secret or change who has access). The commands behind it, and the manual way, are in [deploy/README.md](deploy/README.md). Next: every resource in Terraform, IAP for a demo link with Google sign-in, and Langfuse traces.
 
 ## API
 
@@ -371,7 +371,7 @@ question ──► embed (e5) ──► Qdrant: 20 nearest passages ──┐
 2. ~~**Translator v1**: LLM translation, FastAPI, Docker, web front end~~
 3. ~~**RAG**: hybrid search with page-level citations, verified answers, evaluation, Qdrant as a Docker service~~
 4. ~~**Agent**: LangGraph supervisor planning translate / ask / summarize / compare steps, reviewed results, API and front end, evaluation of the routing, the review and whole runs~~
-5. **Industrialization**: ~~tests and quality (pre-commit, mypy, coverage), CI on every push and pull request, deployment to Cloud Run (Cloud Build, private services, data in Cloud Storage)~~; automatic deployment from GitHub Actions with Workload Identity Federation, Terraform, IAP demo link, tracing and cost monitoring (Langfuse)
+5. **Industrialization**: ~~tests and quality (pre-commit, mypy, coverage), CI on every push and pull request, deployment to Cloud Run (Cloud Build, private services, data in Cloud Storage), automatic deployment from GitHub Actions with Workload Identity Federation~~; Terraform, IAP demo link, tracing and cost monitoring (Langfuse)
 6. **Watch agent (MCP)**: checks a short allowlist of publisher pages (IPCC, IEA, HCC) through the MCP Fetch server, spots new editions of the reports, asks before downloading, then indexes them; evaluated on recorded pages
 7. **Evaluation**: translation benchmark (COMET, chrF) against official IPCC French versions
 
