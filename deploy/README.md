@@ -145,16 +145,17 @@ What `docagent-deployer` may do, and nothing else:
 
 | Role | On | Why |
 | --- | --- | --- |
-| `roles/cloudbuild.builds.editor`, `roles/serviceusage.serviceUsageConsumer` | project | start a build |
+| `roles/cloudbuild.builds.editor`, `roles/serviceusage.serviceUsageConsumer` | project | start a build and follow its status |
+| `roles/storage.bucketViewer` | project | list the buckets: `gcloud builds submit` checks that the staging bucket belongs to the project (without it: "forbidden … serviceusage.services.use") |
 | `roles/storage.objectAdmin`, `roles/storage.legacyBucketReader` | bucket `docagent-lilia_cloudbuild` | upload the code to build |
 | `roles/run.developer` | project | new revisions of the services (not their access) |
 | `roles/iam.serviceAccountUser` | the Cloud Build account, `docagent-run`, `docagent-front` | run the build and the services as these accounts |
 | `roles/run.invoker` | `docagent-api` | the `/health` check |
 
 The deployment does not pass `--no-allow-unauthenticated`: access is set once, and
-`run.developer` may not change it. The build log is not streamed in the job
-(`--suppress-logs`, which would need read access to the whole project): it is in the
-Cloud Build page of the console.
+`run.developer` may not change it. The build is started with `--async` and its status
+read every 20 s: streaming its log would need read access to the whole project
+(Viewer), so the job prints a link to the log in the Cloud Build page instead.
 
 **Old images.** The registry keeps the 3 most recent images and deletes the others
 after a day ([registry-cleanup.json](registry-cleanup.json)):
