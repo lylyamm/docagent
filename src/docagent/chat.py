@@ -24,6 +24,7 @@ from typing import Any, TypeVar
 import httpx
 from pydantic import BaseModel, ValidationError
 
+from . import observability
 from .config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,12 @@ def tools_chat_client(
     tries, as the supervisor does. ``token``: for tests (else Google's sign-in).
     """
     settings = settings or get_settings()
-    common: dict[str, Any] = {"temperature": 0.0, "max_retries": settings.ask_max_retries}
+    common: dict[str, Any] = {
+        "temperature": 0.0,
+        "max_retries": settings.ask_max_retries,
+        "role": "tools",
+        "prices": token_prices(settings.tools_price_in_usd, settings.tools_price_out_usd),
+    }
     if settings.tools_provider != "vertex":
         return ChatClient(settings, **common)
     if not settings.tools_model:
@@ -69,6 +75,11 @@ def tools_chat_client(
         timeout_s=settings.vertex_timeout_s,
         **common,
     )
+
+
+def token_prices(price_in: float | None, price_out: float | None) -> tuple[float, float] | None:
+    """Prices per 1M tokens (input, output), when both are set."""
+    return None if price_in is None or price_out is None else (price_in, price_out)
 
 
 class _Retryable(Exception):
@@ -122,6 +133,8 @@ class ChatClient:
         max_requests: int | None = None,
         rate_limit_retries: int | None = None,
         timeout_s: float | None = None,
+        role: str = "llm",
+        prices: tuple[float, float] | None = None,
     ) -> None:
         """``base_url``/``model``/``token`` override the settings for another provider;
         ``token`` returns a short-lived bearer token (e.g. Google's), asked before each
@@ -129,10 +142,14 @@ class ChatClient:
         refused ones do not count), None = no limit. ``rate_limit_retries``: retries
         allowed for refusals for lack of capacity (429), on top of ``max_retries``: a
         shared model that is busy for a minute is not an error worth giving up on.
-        ``timeout_s``: seconds to wait for one answer (default LLM_TIMEOUT_S)."""
+        ``timeout_s``: seconds to wait for one answer (default LLM_TIMEOUT_S).
+        ``role`` ("translator", "tools", "supervisor") names its calls in the traces;
+        ``prices`` (per 1M tokens, input and output) gives their cost there."""
         self.settings = settings or get_settings()
         self.base_url = (base_url or self.settings.resolved_base_url).rstrip("/")
         self.model = model or self.settings.resolved_model
+        self.role = role
+        self.prices = prices
         self._token = token
         # A fixed key, unless a token provider is given; raises if a required key is missing.
         self._api_key = None if token else self.settings.resolved_api_key
@@ -196,6 +213,31 @@ class ChatClient:
     def _call(self, messages: list[dict]) -> str:
         if self.max_requests is not None and self.answered >= self.max_requests:
             raise CallBudgetExceeded(f"request limit reached ({self.max_requests})")
+        with observability.generation(
+            self.role,
+            model=self.model,
+            input=messages,
+            model_parameters={"temperature": self.temperature},
+            settings=self.settings,
+        ) as gen:
+            try:
+                content, tokens_in, tokens_out = self._post(messages)
+            except Exception as exc:
+                if gen is not None:  # a retried failure is a warning, the others errors
+                    retried = isinstance(exc, (_Retryable, httpx.TransportError))
+                    level = "WARNING" if retried else "ERROR"
+                    gen.update(level=level, status_message=str(exc)[:500])
+                raise
+            if gen is not None:
+                gen.update(
+                    output=content,
+                    usage_details={"input": tokens_in, "output": tokens_out},
+                    cost_details=observability.cost_usd(tokens_in, tokens_out, self.prices),
+                )
+            return content
+
+    def _post(self, messages: list[dict]) -> tuple[str, int, int]:
+        """One HTTP request; returns the answer's text and its input and output tokens."""
         wait = self._last_request + self.settings.llm_min_interval_s - self.clock()
         if wait > 0:
             self.sleep(wait)
@@ -230,9 +272,10 @@ class ChatClient:
         self.answered += 1
         payload = response.json()
         usage = payload.get("usage") or {}
-        self.input_tokens += usage.get("prompt_tokens", 0)
-        self.output_tokens += usage.get("completion_tokens", 0)
-        return payload["choices"][0]["message"]["content"]
+        tokens_in, tokens_out = usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)
+        self.input_tokens += tokens_in
+        self.output_tokens += tokens_out
+        return payload["choices"][0]["message"]["content"], tokens_in, tokens_out
 
     @staticmethod
     def _delay(attempt: int, exc: Exception) -> float:

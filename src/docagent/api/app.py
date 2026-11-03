@@ -28,6 +28,7 @@ from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadF
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from .. import observability
 from ..agent.runs import AgentRun, AgentRuns, RunStateError
 from ..chat import ChatError
 from ..config import Settings, get_settings
@@ -129,6 +130,7 @@ def create_app(
         if warm_up:
             threading.Thread(target=warm, name="rag-warm-up", daemon=True).start()
         yield
+        observability.flush(settings)  # the container stops: send the last traces
 
     app = FastAPI(
         lifespan=lifespan,
@@ -216,7 +218,7 @@ def create_app(
             "job created",
             extra={"job_id": job.id, "pages": pages, "source_lang": source_lang},
         )
-        background.add_task(_run_job, store, job.id, make_translator)
+        background.add_task(_run_job, store, job.id, make_translator, settings)
         return JobCreated(
             job_id=job.id,
             status=job.status,
@@ -253,14 +255,22 @@ def create_app(
         except FileNotFoundError as exc:
             raise HTTPException(503, f"search index not built: {exc}") from exc
         start = time.perf_counter()
-        try:
-            answer = qa.ask(request.question, request.top_k)
-        except ChatError as exc:
-            logger.warning("ask failed: %s", exc)
-            raise HTTPException(502, "the language model did not give a valid answer") from exc
-        except httpx.HTTPStatusError as exc:  # the provider refused: bad key, model retired...
-            logger.error("ask refused by the model provider: %s", exc)
-            raise HTTPException(502, f"the model provider refused the request: {exc}") from exc
+        with observability.trace("ask", input=request.question, settings=settings) as span:
+            try:
+                answer = qa.ask(request.question, request.top_k)
+            except ChatError as exc:
+                logger.warning("ask failed: %s", exc)
+                if span is not None:
+                    span.update(level="ERROR", status_message=str(exc)[:500])
+                raise HTTPException(502, "the language model did not give a valid answer") from exc
+            except httpx.HTTPStatusError as exc:  # the provider refused: bad key, retired model
+                logger.error("ask refused by the model provider: %s", exc)
+                if span is not None:
+                    span.update(level="ERROR", status_message=str(exc)[:500])
+                raise HTTPException(502, f"the model provider refused the request: {exc}") from exc
+            if span is not None:
+                span.update(output=answer.answer, metadata={"sources": len(answer.sources)})
+                observability.score("answered", float(answer.answerable), settings=settings)
         logger.info(
             "question answered",
             extra={
@@ -328,7 +338,28 @@ def default_agent(settings: Settings, get_answerer: Callable[[], Answerer]) -> A
     return AgentRuns(tools, settings, lambda: agent_chat_client(per_request, token=token))
 
 
-def _run_job(store: JobStore, job_id: str, make_translator: Callable[[], Translator]) -> None:
+def _run_job(
+    store: JobStore,
+    job_id: str,
+    make_translator: Callable[[], Translator],
+    settings: Settings | None = None,
+) -> None:
+    """Translate one job, traced as one request: its LLM calls (tokens, cost) are the
+    trace's children, so a translation's cost reads in one place."""
+    queued = store.get(job_id)
+    fields = {"filename", "pages_total", "source_lang", "target_lang"}
+    meta = queued.model_dump(include=fields) if queued else {"job_id": job_id}
+    with observability.trace("translate", input=meta, settings=settings) as span:
+        _translate_job(store, job_id, make_translator)
+        done = store.get(job_id)
+        if span is not None and done is not None:
+            span.update(
+                output=done.model_dump(include={"status", "duration_s", "error", "summary"}),
+                level="ERROR" if done.status == JobStatus.FAILED else None,
+            )
+
+
+def _translate_job(store: JobStore, job_id: str, make_translator: Callable[[], Translator]) -> None:
     """Translate one job; any failure is recorded on the job, never raised."""
     job = store.update(job_id, status=JobStatus.RUNNING)
     start = time.perf_counter()

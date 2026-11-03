@@ -122,6 +122,16 @@ class Settings(BaseSettings):
     tools_price_in_usd: float | None = None  # per 1M tokens, for the cost estimate
     tools_price_out_usd: float | None = None
 
+    # Tracing with Langfuse (one trace per request, one generation per LLM call, the
+    # judge's verdicts as scores). Off unless both keys are set. EU region by default.
+    langfuse_public_key: SecretStr | None = None
+    langfuse_secret_key: SecretStr | None = None
+    langfuse_host: str = "https://cloud.langfuse.com"
+    langfuse_environment: str = "local"  # "cloud-run" on Cloud Run: filter in Langfuse
+    # The translator's price per 1M tokens (LLM_*), for its cost in the traces.
+    llm_price_in_usd: float | None = None
+    llm_price_out_usd: float | None = None
+
     # API server
     max_upload_mb: int = 20
     max_pages: int = 50

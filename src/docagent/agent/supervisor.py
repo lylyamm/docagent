@@ -39,7 +39,7 @@ from typing import Any, Literal, TypedDict, cast
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from ..chat import CallBudgetExceeded, ChatClient, ChatError
+from ..chat import CallBudgetExceeded, ChatClient, ChatError, token_prices
 from ..config import Settings
 from ..pdf.language import french_or_english
 from ..rag import Answer
@@ -702,6 +702,8 @@ def agent_chat_client(settings: Settings, token: Callable[[], str] | None = None
         "max_retries": settings.ask_max_retries,
         "max_requests": settings.agent_max_calls or None,
         "rate_limit_retries": settings.agent_rate_limit_retries,
+        "role": "supervisor",
+        "prices": token_prices(settings.agent_price_in_usd, settings.agent_price_out_usd),
     }
     if settings.agent_provider == "vertex":
         if not settings.agent_model:

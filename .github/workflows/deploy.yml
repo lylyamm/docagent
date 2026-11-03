@@ -74,7 +74,7 @@ jobs:
             --min-instances 0 --max-instances 1 \
             --no-cpu-throttling --cpu-boost \
             --env-vars-file deploy/api.env.yaml \
-            --set-secrets MISTRAL_API_KEY=mistral-api-key:latest
+            --set-secrets "MISTRAL_API_KEY=mistral-api-key:latest,LANGFUSE_PUBLIC_KEY=langfuse-public-key:latest,LANGFUSE_SECRET_KEY=langfuse-secret-key:latest"
 
       - name: Deploy the front end
         run: |
