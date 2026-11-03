@@ -10,7 +10,7 @@ Work with climate and energy reports (IPCC, IEA, French High Council on Climate)
 
 ![IPCC Summary for Policymakers, page 6: original on the left, DocAgent's French translation on the right](docs/images/giec_chart.png)
 
-**Status:** v0.4, translator + question answering (RAG) + LangGraph agent, deployed on Google Cloud Run (private services, see [Deployment](#deployment-on-google-cloud)). Every merge on `main` is tested, built and deployed by GitHub Actions without any stored key. Next: Terraform, tracing, then a watch agent with MCP (see [Roadmap](#roadmap)).
+**Status:** v0.4, translator + question answering (RAG) + LangGraph agent, deployed on Google Cloud Run (private services, see [Deployment](#deployment-on-google-cloud)). Every merge on `main` is tested, built and deployed by GitHub Actions without any stored key, and every request is traced in Langfuse (tokens, cost, the judge's verdicts). Next: Terraform, then a watch agent with MCP (see [Roadmap](#roadmap)).
 
 ## What it does
 
@@ -279,11 +279,13 @@ The whole application runs on Cloud Run in Paris (`europe-west9`), built from th
 | Scale to zero | `min 0`, `max 1` instance each | Nothing to pay when nobody uses it, and a cost that cannot run away; the price is a cold start: the container starts, then about 1 min of copying the data and loading the model before the first search |
 | Background work | `--no-cpu-throttling` on the API | Translations and agent runs go on after the `202` response; by default Cloud Run gives almost no CPU between requests |
 | Data | The search index and the corpus PDFs (~170 MB) in **Cloud Storage**, copied to the disk when the API starts (`RAG_INDEX_URL`, `RAG_RAW_URL`, [remote_data.py](src/docagent/remote_data.py)) | The image holds code and model, the bucket holds data: a new index needs no new image |
-| Models | Vertex AI with the service's own identity, no key; the Mistral key for translation in **Secret Manager**, given to the API as an environment variable | No secret in the image, in the repository or in the settings file ([deploy/api.env.yaml](deploy/api.env.yaml)) |
+| Models | Vertex AI with the service's own identity, no key; the Mistral key for translation and the Langfuse keys in **Secret Manager**, given to the API as environment variables | No secret in the image, in the repository or in the settings file ([deploy/api.env.yaml](deploy/api.env.yaml)) |
 | Access | Both services **private**: a request without a Google identity token gets `403` | A public LLM application lets anyone spend its model budget |
-| Least privilege | `docagent-run` (api): Vertex AI user, read the bucket, read the secret. `docagent-front`: may only call the API, with an identity token from the metadata server | A leaked front end cannot read the data or call the models |
+| Least privilege | `docagent-run` (api): Vertex AI user, read the bucket, read its secrets. `docagent-front`: may only call the API, with an identity token from the metadata server | A leaked front end cannot read the data or call the models |
 
-Today the developer opens the front end through `gcloud run services proxy` (localhost, with her own Google identity), Every push to `main` that passes the CI is deployed by [.github/workflows/deploy.yml](.github/workflows/deploy.yml): Cloud Build builds the image tagged with the commit, both services get a new revision, then `GET /health` is called with an identity token. GitHub holds no key: **Workload Identity Federation** exchanges the workflow's signed GitHub token for a one-hour Google token of `docagent-deployer`, and only for this repository's `main` branch. That account can build, deploy new revisions and call `/health`, nothing else (it cannot read the data, the secret or change who has access). The commands behind it, and the manual way, are in [deploy/README.md](deploy/README.md). Next: every resource in Terraform, IAP for a demo link with Google sign-in, and Langfuse traces.
+Today the developer opens the front end through `gcloud run services proxy` (localhost, with her own Google identity). Every push to `main` that passes the CI is deployed by [.github/workflows/deploy.yml](.github/workflows/deploy.yml): Cloud Build builds the image tagged with the commit, both services get a new revision, then `GET /health` is called with an identity token. GitHub holds no key: **Workload Identity Federation** exchanges the workflow's signed GitHub token for a one-hour Google token of `docagent-deployer`, and only for this repository's `main` branch. That account can build, deploy new revisions and call `/health`, nothing else (it cannot read the data, the secret or change who has access). The commands behind it, and the manual way, are in [deploy/README.md](deploy/README.md). Next: every resource in Terraform, and IAP for a demo link with Google sign-in.
+
+**Tracing (Langfuse).** Every request is one trace in Langfuse Cloud (EU region): a question, an agent run or a translation, with one *generation* per LLM call (role, model, messages, tokens, cost from the prices per 1M tokens), one span per node of the agent's graph, and scores: `answered` for a question, `judge_kept_ratio` and `judge_removed` for an agent run. A failed call that is retried shows as a warning on its generation. The keys come from Secret Manager; without them (tests, CI, a local run) tracing is off and nothing changes ([observability.py](src/docagent/observability.py)). Logs stay in Cloud Logging (latency, errors, instance starts), and the JSON trajectories stay for the evaluations, which are versioned and replayable.
 
 ## API
 
@@ -371,7 +373,7 @@ question ──► embed (e5) ──► Qdrant: 20 nearest passages ──┐
 2. ~~**Translator v1**: LLM translation, FastAPI, Docker, web front end~~
 3. ~~**RAG**: hybrid search with page-level citations, verified answers, evaluation, Qdrant as a Docker service~~
 4. ~~**Agent**: LangGraph supervisor planning translate / ask / summarize / compare steps, reviewed results, API and front end, evaluation of the routing, the review and whole runs~~
-5. **Industrialization**: ~~tests and quality (pre-commit, mypy, coverage), CI on every push and pull request, deployment to Cloud Run (Cloud Build, private services, data in Cloud Storage), automatic deployment from GitHub Actions with Workload Identity Federation~~; Terraform, IAP demo link, tracing and cost monitoring (Langfuse)
+5. **Industrialization**: ~~tests and quality (pre-commit, mypy, coverage), CI on every push and pull request, deployment to Cloud Run (Cloud Build, private services, data in Cloud Storage), automatic deployment from GitHub Actions with Workload Identity Federation, tracing and cost per request (Langfuse)~~; Terraform, IAP demo link
 6. **Watch agent (MCP)**: checks a short allowlist of publisher pages (IPCC, IEA, HCC) through the MCP Fetch server, spots new editions of the reports, asks before downloading, then indexes them; evaluated on recorded pages
 7. **Evaluation**: translation benchmark (COMET, chrF) against official IPCC French versions
 
@@ -385,6 +387,7 @@ src/docagent/agent/      # LangGraph agent: tools, supervisor, review, translati
 src/docagent/chat.py     # small client for JSON answers from the LLM (fixed key or refreshed token)
 src/docagent/gcp.py      # Google sign-in for Vertex AI, identity token for the private API on Cloud Run
 src/docagent/remote_data.py  # copies the index and the corpus PDFs from Cloud Storage at start-up
+src/docagent/observability.py  # Langfuse tracing: one trace per request, one generation per LLM call, scores
 src/docagent/api/        # FastAPI app: translation jobs, questions, agent runs
 front/app.py             # Streamlit front end (translate, ask, assistant)
 scripts/                 # translation, indexing, search, question, agent, evaluation and vector copy scripts

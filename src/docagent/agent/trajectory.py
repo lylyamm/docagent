@@ -25,6 +25,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from .. import observability
 from ..chat import ChatClient
 from ..config import Settings
 from ..rag import Answer
@@ -111,22 +112,41 @@ class Recorder:
     def run(self, graph, inputs) -> dict[str, Any]:
         """One run (``{"request": ...}`` or ``Command(resume=...)``); returns the state,
         with ``__interrupt__`` when the graph paused, like ``graph.invoke``."""
-        last = self.clock()
-        for chunk in graph.stream(inputs, self.config, stream_mode="updates"):
-            now = self.clock()
-            for node, update in chunk.items():
-                if node == "__interrupt__":
-                    self.trajectory.pauses += 1
-                    continue
-                self.live.update(update or {})
-                self._record(node, update or {}, round(now - last, 3))
-            self.trajectory.duration_s = round(self.trajectory.duration_s + now - last, 3)
-            last = now
-        snapshot = graph.get_state(self.config)
-        state = dict(snapshot.values)
-        if snapshot.interrupts:
-            state["__interrupt__"] = list(snapshot.interrupts)
+        first = isinstance(inputs, dict)
+        with observability.trace(
+            "agent" if first else "agent (resumed)",
+            input=inputs.get("request") if first else str(getattr(inputs, "resume", "")),
+            session_id=self.thread_id,  # a run and its resumes: one session in Langfuse
+            settings=self.settings,
+        ) as span:
+            config = {**self.config, "callbacks": observability.callbacks(self.settings)}
+            last = self.clock()
+            for chunk in graph.stream(inputs, config, stream_mode="updates"):
+                now = self.clock()
+                for node, update in chunk.items():
+                    if node == "__interrupt__":
+                        self.trajectory.pauses += 1
+                        continue
+                    self.live.update(update or {})
+                    self._record(node, update or {}, round(now - last, 3))
+                self.trajectory.duration_s = round(self.trajectory.duration_s + now - last, 3)
+                last = now
+            snapshot = graph.get_state(self.config)
+            state = dict(snapshot.values)
+            if snapshot.interrupts:
+                state["__interrupt__"] = list(snapshot.interrupts)
+            if span is not None:
+                span.update(output=state.get("message") or "(waiting for the user)")
+                self._scores()
         return state
+
+    def _scores(self) -> None:
+        """The judge's verdicts on this run, as scores on its trace."""
+        kept = sum(n.kept or 0 for n in self.trajectory.nodes if n.node == "judge")
+        removed = sum(n.removed or 0 for n in self.trajectory.nodes if n.node == "judge")
+        if kept + removed:
+            observability.score("judge_kept_ratio", kept / (kept + removed), settings=self.settings)
+            observability.score("judge_removed", float(removed), settings=self.settings)
 
     def finish(self, state: dict[str, Any]) -> Trajectory:
         t = self.trajectory

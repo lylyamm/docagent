@@ -18,7 +18,8 @@ Created once, by hand (Terraform later):
 | Artifact Registry repository | `docagent` (Docker, europe-west9) | the images |
 | Cloud Storage bucket | `docagent-lilia-index` | `index/` (passages + Qdrant vectors), `raw/` (corpus PDFs) |
 | Secret | `mistral-api-key` | the translator's key, created in the console, never typed in a terminal |
-| Service account | `docagent-run` | the API: `roles/aiplatform.user` (project), `roles/storage.objectViewer` (bucket), `roles/secretmanager.secretAccessor` (secret) |
+| Secrets | `langfuse-public-key`, `langfuse-secret-key` | the tracing keys (Langfuse Cloud, EU), created in the console |
+| Service account | `docagent-run` | the API: `roles/aiplatform.user` (project), `roles/storage.objectViewer` (bucket), `roles/secretmanager.secretAccessor` (the three secrets) |
 | Service account | `docagent-front` | the front end: `roles/run.invoker` on the API only |
 | Service account | `docagent-deployer` | GitHub Actions, see *Automatic deployment* |
 | Workload Identity pool and provider | `github` / `docagent-repo` | accepts GitHub's tokens for `lylyamm/docagent` on `main` only |
@@ -63,7 +64,7 @@ gcloud run deploy docagent-api `
   --min-instances 0 --max-instances 1 `
   --no-cpu-throttling --cpu-boost `
   --env-vars-file deploy/api.env.yaml `
-  --set-secrets MISTRAL_API_KEY=mistral-api-key:latest
+  --set-secrets "MISTRAL_API_KEY=mistral-api-key:latest,LANGFUSE_PUBLIC_KEY=langfuse-public-key:latest,LANGFUSE_SECRET_KEY=langfuse-secret-key:latest"
 ```
 
 | Option | Why |
@@ -149,6 +150,7 @@ What `docagent-deployer` may do, and nothing else:
 | `roles/storage.bucketViewer` | project | list the buckets: `gcloud builds submit` checks that the staging bucket belongs to the project (without it: "forbidden … serviceusage.services.use") |
 | `roles/storage.objectAdmin`, `roles/storage.legacyBucketReader` | bucket `docagent-lilia_cloudbuild` | upload the code to build |
 | `roles/run.developer` | project | new revisions of the services (not their access) |
+| `roles/artifactregistry.reader` | repository `docagent` | `gcloud run deploy` resolves the image tag to its digest |
 | `roles/iam.serviceAccountUser` | the Cloud Build account, `docagent-run`, `docagent-front` | run the build and the services as these accounts |
 | `roles/run.invoker` | `docagent-api` | the `/health` check |
 
@@ -164,3 +166,24 @@ after a day ([registry-cleanup.json](registry-cleanup.json)):
 gcloud artifacts repositories set-cleanup-policies docagent --project docagent-lilia --location europe-west9 `
   --policy deploy/registry-cleanup.json --no-dry-run
 ```
+
+## Tracing (Langfuse)
+
+Every request is traced in Langfuse Cloud (EU region, free Hobby plan): one trace per
+question, agent run or translation, one generation per LLM call (model, tokens, cost),
+one span per node of the agent's graph, and the judge's verdicts as scores
+(`judge_kept_ratio`, `judge_removed`, `answered`). Traces from Cloud Run carry the
+environment `cloud-run`, those from a laptop `local`.
+
+The two keys live in Secret Manager and reach the API as environment variables:
+
+```powershell
+foreach ($s in "langfuse-public-key", "langfuse-secret-key") {
+  gcloud secrets add-iam-policy-binding $s --project docagent-lilia `
+    --member "serviceAccount:docagent-run@docagent-lilia.iam.gserviceaccount.com" `
+    --role roles/secretmanager.secretAccessor
+}
+```
+
+Without the keys (tests, CI, a local run), tracing is off and nothing changes.
+

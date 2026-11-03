@@ -23,7 +23,7 @@ from dataclasses import dataclass
 import httpx
 from pydantic import BaseModel
 
-from ..chat import ChatClient
+from ..chat import ChatClient, token_prices
 from ..config import Settings, get_settings
 from .base import Translator
 from .glossary import Glossary
@@ -153,7 +153,13 @@ class ChatTranslator(Translator):
         self.settings = settings or get_settings()
         # Raises if a required key or model is missing.
         self.chat = chat or ChatClient(
-            self.settings, client=client, sleep=sleep, clock=clock, temperature=0.2
+            self.settings,
+            client=client,
+            sleep=sleep,
+            clock=clock,
+            temperature=0.2,
+            role="translator",
+            prices=token_prices(self.settings.llm_price_in_usd, self.settings.llm_price_out_usd),
         )
         self.model = self.chat.model
         self.name = f"{self.settings.llm_provider}:{self.model}:{PROMPT_VERSION}"
