@@ -152,3 +152,87 @@ def test_cost_needs_both_prices():
         "output": 0.0,
         "total": 2.0,
     }
+
+
+class BrokenLangfuse(FakeLangfuse):
+    """An SDK that fails everywhere: tracing must step aside, never break a request."""
+
+    def start_as_current_observation(self, **fields):
+        raise RuntimeError("SDK broken")
+
+    def score_current_trace(self, **fields):
+        raise RuntimeError("SDK broken")
+
+
+def test_a_broken_sdk_never_breaks_a_question_or_an_llm_call(monkeypatch, tmp_path):
+    from pydantic import BaseModel
+
+    from docagent.rag import Answer
+
+    monkeypatch.setattr(observability, "enabled", lambda settings=None: True)
+    monkeypatch.setattr(observability, "_client", BrokenLangfuse())
+
+    class Reply(BaseModel):
+        ok: bool
+
+    client = ChatClient(settings(), role="tools")
+    client.client = httpx.Client(transport=httpx.MockTransport(lambda r: chat_reply({"ok": 1})))
+    assert client.complete_json([{"role": "user", "content": "x"}], Reply).ok
+
+    class Answerer:
+        def ask(self, question, top_k=None):
+            return Answer(
+                question=question, answer="ok", answerable=True, sources=[], retrieved=[], model="m"
+            )
+
+    s = settings(jobs_dir=tmp_path / "jobs", translator="fake")
+    http = TestClient(create_app(s, answerer_factory=Answerer))
+    assert http.post("/v1/ask", json={"question": "Sea level?"}).json()["answer"] == "ok"
+
+
+def test_the_traced_codes_own_error_goes_through(langfuse):
+    with pytest.raises(ValueError, match="mine"), observability.trace("ask", settings=settings()):
+        raise ValueError("mine")
+
+
+def test_the_real_sdk_nests_the_llm_calls_under_the_request(monkeypatch):
+    """The real Langfuse SDK, its spans kept in memory instead of sent: one trace
+    "ask", the LLM call as its child, with model and tokens."""
+    from langfuse import Langfuse
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+    from pydantic import BaseModel
+
+    class Reply(BaseModel):
+        ok: bool
+
+    exporter = InMemorySpanExporter()
+    real = Langfuse(
+        public_key="pk-lf-test",
+        secret_key="sk-lf-test",
+        host="http://127.0.0.1:9",  # nothing is sent: spans go to the exporter
+        span_exporter=exporter,
+        flush_at=1,
+    )
+    monkeypatch.setattr(observability, "enabled", lambda settings=None: True)
+    monkeypatch.setattr(observability, "_client", real)
+
+    s = settings(tools_price_in_usd=0.30, tools_price_out_usd=2.50)
+    client = tools_chat_client(s)
+    client.client = httpx.Client(transport=httpx.MockTransport(lambda r: chat_reply({"ok": 1})))
+    with observability.trace("ask", input="Sea level?", settings=s) as span:
+        client.complete_json([{"role": "user", "content": "x"}], Reply)
+        span.update(output="0.20 m")
+    real.flush()
+
+    spans = {sp.name: sp for sp in exporter.get_finished_spans()}
+    assert {"ask", "tools"} <= set(spans)
+    assert spans["tools"].parent.span_id == spans["ask"].context.span_id
+    attributes = dict(spans["tools"].attributes)
+    assert attributes["langfuse.observation.type"] == "generation"
+    assert attributes["langfuse.trace.name"] == "ask"
+    assert json.loads(attributes["langfuse.observation.usage_details"]) == {
+        "input": 1000,
+        "output": 200,
+    }
+    cost = json.loads(attributes["langfuse.observation.cost_details"])
+    assert cost["total"] == pytest.approx(0.0008)

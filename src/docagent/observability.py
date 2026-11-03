@@ -8,16 +8,19 @@
 
 Off unless LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are set: then every helper is a
 no-op, so tests, the CI and a local run without keys behave exactly as before. The SDK
-sends its data from a background thread, and a tracing failure never breaks a request.
+sends its data from a background thread, and a tracing failure never breaks a request:
+opening a span, updating it and closing it are guarded; only the traced code's own
+errors go through.
 
 The JSON trajectories of ``agent/trajectory.py`` stay: they are versioned with the
 evaluations and replayable; Langfuse is for following the running service.
 """
 
 import logging
+import sys
 import threading
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import Callable, Iterator
+from contextlib import ExitStack, contextmanager
 from typing import Any
 
 from .config import Settings, get_settings
@@ -57,6 +60,44 @@ def client(settings: Settings | None = None) -> Any:
     return _client
 
 
+class _Observation:
+    """A span or generation whose ``update`` can never raise: a tracing failure must
+    not turn into a failed request."""
+
+    def __init__(self, obs: Any) -> None:
+        self._obs = obs
+
+    def update(self, **fields: Any) -> None:
+        try:
+            self._obs.update(**fields)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Langfuse update not sent: %s", exc)
+
+
+@contextmanager
+def _guarded(open_observation: Callable[[], Any]) -> Iterator[_Observation | None]:
+    """Open an SDK context manager; on any SDK error, go on without tracing. An error
+    of the traced code itself goes through unchanged (and is recorded on the span)."""
+    try:
+        cm = open_observation()
+        obs = cm.__enter__()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Langfuse tracing skipped: %s", exc)
+        yield None
+        return
+    exc_info: tuple[Any, Any, Any] = (None, None, None)
+    try:
+        yield _Observation(obs)
+    except BaseException:
+        exc_info = sys.exc_info()
+        raise
+    finally:
+        try:
+            cm.__exit__(*exc_info)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Langfuse tracing: %s", exc)
+
+
 @contextmanager
 def trace(
     name: str,
@@ -64,19 +105,25 @@ def trace(
     input: Any = None,
     session_id: str | None = None,
     settings: Settings | None = None,
-) -> Iterator[Any]:
+) -> Iterator[_Observation | None]:
     """A request: the root span of a trace; the LLM calls made inside become its
     children. Yields the span (``span.update(output=...)``), or None when off."""
     lf = client(settings)
     if lf is None:
         yield None
         return
-    from langfuse import propagate_attributes
 
-    with (
-        propagate_attributes(trace_name=name, session_id=session_id),
-        lf.start_as_current_observation(name=name, as_type="span", input=input) as span,
-    ):
+    def open_trace() -> Any:
+        from langfuse import propagate_attributes
+
+        stack = ExitStack()
+        stack.enter_context(propagate_attributes(trace_name=name, session_id=session_id))
+        span = stack.enter_context(
+            lf.start_as_current_observation(name=name, as_type="span", input=input)
+        )
+        return _Entered(stack, span)
+
+    with _guarded(open_trace) as span:
         yield span
 
 
@@ -88,20 +135,35 @@ def generation(
     input: Any,
     model_parameters: dict[str, Any] | None = None,
     settings: Settings | None = None,
-) -> Iterator[Any]:
+) -> Iterator[_Observation | None]:
     """One LLM call; ``ChatClient`` fills in the answer, tokens and cost."""
     lf = client(settings)
     if lf is None:
         yield None
         return
-    with lf.start_as_current_observation(
-        name=name,
-        as_type="generation",
-        model=model,
-        input=input,
-        model_parameters=model_parameters,
+    with _guarded(
+        lambda: lf.start_as_current_observation(
+            name=name,
+            as_type="generation",
+            model=model,
+            input=input,
+            model_parameters=model_parameters,
+        )
     ) as gen:
         yield gen
+
+
+class _Entered:
+    """Two context managers already entered (attributes + span), closed together."""
+
+    def __init__(self, stack: ExitStack, span: Any) -> None:
+        self.stack, self.span = stack, span
+
+    def __enter__(self) -> Any:
+        return self.span
+
+    def __exit__(self, *exc_info: Any) -> bool:
+        return bool(self.stack.__exit__(*exc_info))
 
 
 def score(name: str, value: float, comment: str | None = None, settings: Settings | None = None):
@@ -112,6 +174,17 @@ def score(name: str, value: float, comment: str | None = None, settings: Setting
             lf.score_current_trace(name=name, value=value, comment=comment)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Langfuse score not sent: %s", exc)
+
+
+def flush(settings: Settings | None = None) -> None:
+    """Send the traces still waiting (the API calls it when the container stops: with
+    scale to zero, an instance can stop a few seconds after its last request)."""
+    lf = _client if enabled(settings) else None
+    if lf is not None:
+        try:
+            lf.flush()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Langfuse flush failed: %s", exc)
 
 
 def callbacks(settings: Settings | None = None) -> list[Any]:

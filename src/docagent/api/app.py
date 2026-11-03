@@ -130,6 +130,7 @@ def create_app(
         if warm_up:
             threading.Thread(target=warm, name="rag-warm-up", daemon=True).start()
         yield
+        observability.flush(settings)  # the container stops: send the last traces
 
     app = FastAPI(
         lifespan=lifespan,
@@ -259,9 +260,13 @@ def create_app(
                 answer = qa.ask(request.question, request.top_k)
             except ChatError as exc:
                 logger.warning("ask failed: %s", exc)
+                if span is not None:
+                    span.update(level="ERROR", status_message=str(exc)[:500])
                 raise HTTPException(502, "the language model did not give a valid answer") from exc
             except httpx.HTTPStatusError as exc:  # the provider refused: bad key, retired model
                 logger.error("ask refused by the model provider: %s", exc)
+                if span is not None:
+                    span.update(level="ERROR", status_message=str(exc)[:500])
                 raise HTTPException(502, f"the model provider refused the request: {exc}") from exc
             if span is not None:
                 span.update(output=answer.answer, metadata={"sources": len(answer.sources)})
