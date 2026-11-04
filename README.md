@@ -10,7 +10,16 @@ Work with climate and energy reports (IPCC, IEA, French High Council on Climate)
 
 ![IPCC Summary for Policymakers, page 6: original on the left, DocAgent's French translation on the right](docs/images/giec_chart.png)
 
-**Status:** v0.4, translator + question answering (RAG) + LangGraph agent, deployed on Google Cloud Run (private services, see [Deployment](#deployment-on-google-cloud)). Every merge on `main` is tested, built and deployed by GitHub Actions without any stored key, and every request is traced in Langfuse (tokens, cost, the judge's verdicts). Next: Terraform, then a watch agent with MCP (see [Roadmap](#roadmap)).
+**Status:** v0.4, translator + question answering (RAG) + LangGraph agent, deployed on Google Cloud Run (private services, see [Deployment](#deployment-on-google-cloud)), with a [live demo](#live-demo) behind Google sign-in. Every merge on `main` is tested, built and deployed by GitHub Actions without any stored key, and every request is traced in Langfuse (tokens, cost, the judge's verdicts). Next: Terraform, then a watch agent with MCP (see [Roadmap](#roadmap)).
+
+## Live demo
+
+The application runs on Cloud Run behind Google sign-in. Access is approved by hand:
+
+1. With a Google account, ask to join the group [docagent-demo](https://groups.google.com/g/docagent-demo).
+2. Once the request is accepted, open **https://docagent-front-51066993529.europe-west9.run.app** and sign in with the same account.
+
+The services scale to zero: after a quiet period, the first visit waits about one minute while the API wakes up. A new member may also wait a few minutes before the sign-in lets them in. What the demo keeps, and for how long: [privacy note](https://lylyamm.github.io/docagent/privacy.html).
 
 ## What it does
 
@@ -36,7 +45,7 @@ Work with climate and energy reports (IPCC, IEA, French High Council on Climate)
 - **A stronger model reviews the result**: after each step, the supervisor (Gemini 3.8 Flash on Vertex AI) reads every point next to its passages and removes the ones that do not say what the sources say. It can only remove, never add.
 - **Asks before long work**: a translation of more than 50 pages pauses the agent (`interrupt()`) until the user says yes or no.
 - **Every run is recorded**: a trajectory (plan, nodes, durations, points removed by the code and by the review, cost) is saved as JSON; the API and the front end show it while the agent works.
-- **Cost guards**: at most 12 supervisor calls per request in the API, a 5-step limit enforced by code, and a monthly budget on the cloud project.
+- **Cost guards**: at most 12 supervisor calls per request in the API and a 5-step limit enforced by code.
 
 ![The Assistant tab: a two-step request (summary of the HCC report, then a comparison with the IPCC on carbon sinks), its plan, each step's result and the points the review removed, with the reason](docs/images/agent_assistant.png)
 
@@ -247,7 +256,7 @@ Locally the vector store runs embedded (a folder, no server): one program at a t
 
 The agent uses the search index above (tools on `LLM_MODEL`) and a supervisor model. With Gemini on Vertex AI:
 
-1. A Google Cloud project with billing and the Vertex AI API enabled (`gcloud services enable aiplatform.googleapis.com`), and a budget alert.
+1. A Google Cloud project with billing and the Vertex AI API enabled (`gcloud services enable aiplatform.googleapis.com`).
 2. Sign in once on the machine, no key stored:
 
 ```bash
@@ -268,7 +277,7 @@ Or start the API and the front end (above) and open the **Assistant** tab. Each 
 
 ## Deployment on Google Cloud
 
-![Deployment architecture: laptop with pre-commit hooks, GitHub CI, Cloud Build and Artifact Registry, two private Cloud Run services (Streamlit front, FastAPI api), Vertex AI, Secret Manager, Cloud Storage and Cloud Logging; dashed: automatic deployment with Workload Identity Federation, Terraform, IAP and Langfuse, the next steps](docs/images/architecture.png)
+![Deployment architecture: laptop with pre-commit hooks, GitHub CI, Cloud Build and Artifact Registry, two private Cloud Run services (Streamlit front, FastAPI api), Vertex AI, Secret Manager, Cloud Storage and Cloud Logging; automatic deployment from GitHub with Workload Identity Federation, visitors through IAP, Langfuse traces; dashed: Terraform, the next step](docs/images/architecture.png)
 
 The whole application runs on Cloud Run in Paris (`europe-west9`), built from the same Docker image as above:
 
@@ -280,10 +289,10 @@ The whole application runs on Cloud Run in Paris (`europe-west9`), built from th
 | Background work | `--no-cpu-throttling` on the API | Translations and agent runs go on after the `202` response; by default Cloud Run gives almost no CPU between requests |
 | Data | The search index and the corpus PDFs (~170 MB) in **Cloud Storage**, copied to the disk when the API starts (`RAG_INDEX_URL`, `RAG_RAW_URL`, [remote_data.py](src/docagent/remote_data.py)) | The image holds code and model, the bucket holds data: a new index needs no new image |
 | Models | Vertex AI with the service's own identity, no key; the Mistral key for translation and the Langfuse keys in **Secret Manager**, given to the API as environment variables | No secret in the image, in the repository or in the settings file ([deploy/api.env.yaml](deploy/api.env.yaml)) |
-| Access | Both services **private**: a request without a Google identity token gets `403` | A public LLM application lets anyone spend its model budget |
+| Access | Both services **private**. The front end is behind **IAP** (Google sign-in, members of one Google Group only); the API only accepts identity tokens of allowed accounts (the front end, the deployment's health check) | A public LLM application lets anyone call the models; a group gives access to a new visitor without any command to run |
 | Least privilege | `docagent-run` (api): Vertex AI user, read the bucket, read its secrets. `docagent-front`: may only call the API, with an identity token from the metadata server | A leaked front end cannot read the data or call the models |
 
-Today the developer opens the front end through `gcloud run services proxy` (localhost, with her own Google identity). Every push to `main` that passes the CI is deployed by [.github/workflows/deploy.yml](.github/workflows/deploy.yml): Cloud Build builds the image tagged with the commit, both services get a new revision, then `GET /health` is called with an identity token. GitHub holds no key: **Workload Identity Federation** exchanges the workflow's signed GitHub token for a one-hour Google token of `docagent-deployer`, and only for this repository's `main` branch. That account can build, deploy new revisions and call `/health`, nothing else (it cannot read the data, the secret or change who has access). The commands behind it, and the manual way, are in [deploy/README.md](deploy/README.md). Next: every resource in Terraform, and IAP for a demo link with Google sign-in.
+Visitors open the front end at its Cloud Run URL. **Identity-Aware Proxy** (IAP), turned on directly on the service (no load balancer, no extra cost), asks for Google sign-in and lets in only the members of the `docagent-demo` Google Group, whose join requests are approved by hand; anyone else gets a refusal page before the container is even called. Every push to `main` that passes the CI is deployed by [.github/workflows/deploy.yml](.github/workflows/deploy.yml): Cloud Build builds the image tagged with the commit, both services get a new revision, then `GET /health` is called with an identity token. GitHub holds no key: **Workload Identity Federation** exchanges the workflow's signed GitHub token for a one-hour Google token of `docagent-deployer`, and only for this repository's `main` branch. That account can build, deploy new revisions and call `/health`, nothing else (it cannot read the data, the secret or change who has access). The commands behind it, and the manual way, are in [deploy/README.md](deploy/README.md). Next: every resource in Terraform.
 
 **Tracing (Langfuse).** Every request is one trace in Langfuse Cloud (EU region): a question, an agent run or a translation, with one *generation* per LLM call (role, model, messages, tokens, cost from the prices per 1M tokens), one span per node of the agent's graph, and scores: `answered` for a question, `judge_kept_ratio` and `judge_removed` for an agent run. A failed call that is retried shows as a warning on its generation. The keys come from Secret Manager; without them (tests, CI, a local run) tracing is off and nothing changes ([observability.py](src/docagent/observability.py)). Logs stay in Cloud Logging (latency, errors, instance starts), and the JSON trajectories stay for the evaluations, which are versioned and replayable.
 
@@ -373,7 +382,7 @@ question ──► embed (e5) ──► Qdrant: 20 nearest passages ──┐
 2. ~~**Translator v1**: LLM translation, FastAPI, Docker, web front end~~
 3. ~~**RAG**: hybrid search with page-level citations, verified answers, evaluation, Qdrant as a Docker service~~
 4. ~~**Agent**: LangGraph supervisor planning translate / ask / summarize / compare steps, reviewed results, API and front end, evaluation of the routing, the review and whole runs~~
-5. **Industrialization**: ~~tests and quality (pre-commit, mypy, coverage), CI on every push and pull request, deployment to Cloud Run (Cloud Build, private services, data in Cloud Storage), automatic deployment from GitHub Actions with Workload Identity Federation, tracing and cost per request (Langfuse)~~; Terraform, IAP demo link
+5. **Industrialization**: ~~tests and quality (pre-commit, mypy, coverage), CI on every push and pull request, deployment to Cloud Run (Cloud Build, private services, data in Cloud Storage), automatic deployment from GitHub Actions with Workload Identity Federation, tracing and cost per request (Langfuse), IAP demo link~~; Terraform
 6. **Watch agent (MCP)**: checks a short allowlist of publisher pages (IPCC, IEA, HCC) through the MCP Fetch server, spots new editions of the reports, asks before downloading, then indexes them; evaluated on recorded pages
 7. **Evaluation**: translation benchmark (COMET, chrF) against official IPCC French versions
 

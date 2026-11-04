@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DocAgent privacy note</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+<h1>Privacy note</h1>
+<p class="lead">DocAgent demo, a personal portfolio project. Last updated: November 2026.</p>
+
+<h2>Sign-in</h2>
+<p>Access goes through Google sign-in (Identity-Aware Proxy on Google Cloud). Google passes only your email address and account ID, to check that you are a member of the <a href="https://groups.google.com/g/docagent-demo">docagent-demo</a> Google Group. It does not ask for any other Google data and does not store your address. You can leave the group at any time; access ends with it.</p>
+
+<h2>What you send</h2>
+<p>Your questions, and the PDFs you upload for translation, are sent to language models to produce the answer: Google Vertex AI (Gemini) and Mistral AI (translation). Please do not upload confidential or personal documents.</p>
+
+<h2>What is kept</h2>
+<ul>
+  <li><strong>Translated PDFs</strong> stay on the server's temporary disk and disappear when the service stops, usually a few minutes after the last request.</li>
+  <li><strong>Technical logs</strong> (time, status, duration of each request) are kept in Google Cloud Logging for 30 days.</li>
+  <li><strong>Traces</strong> of each request (the question, the steps of the answer, the model calls) are kept in Langfuse Cloud, in the EU, to check the quality of the answers. On the free plan used here, they are accessible for 30 days.</li>
+</ul>
+<p>Only the developer can see the logs and traces. Nothing is sold, shared or used for advertising.</p>
+
+<h2>Contact</h2>
+<p>To ask a question or to have your data removed, open an issue on <a href="https://github.com/lylyamm/docagent/issues">GitHub</a> or write through the Google Group.</p>
+
+<footer><a href="index.html">DocAgent demo</a></footer>
+</main>
+</body>
+</html>

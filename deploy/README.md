@@ -118,6 +118,43 @@ gcloud logging read "resource.type=cloud_run_revision AND resource.labels.servic
 After a quiet period the first call waits for a cold start: about a minute before the
 API has copied the data (`data downloaded`) and loaded the model (`search index ready`).
 
+## Demo access (IAP)
+
+Visitors open `https://docagent-front-51066993529.europe-west9.run.app` directly.
+Identity-Aware Proxy is turned on on the front-end service itself (no load balancer):
+it asks for Google sign-in and lets in only the members of the Google Group
+`docagent-demo@googlegroups.com`. A visitor asks to join the group, the owner accepts or
+refuses the request in Google Groups: nothing to run, no redeployment.
+
+Set up once. The first time, in the console (a project without an organization needs
+the OAuth consent screen, *External*): Cloud Run, `docagent-front`, *Security*, enable
+IAP. The same with gcloud:
+
+```powershell
+gcloud run services update docagent-front --iap --region europe-west9 --project docagent-lilia
+
+gcloud iap web add-iam-policy-binding --resource-type=cloud-run --service=docagent-front `
+  --region=europe-west9 --project docagent-lilia `
+  --member "group:docagent-demo@googlegroups.com" --role roles/iap.httpsResourceAccessor
+```
+
+Check:
+
+```powershell
+gcloud run services describe docagent-front --region europe-west9 --project docagent-lilia `
+  --format "value(metadata.annotations.'run.googleapis.com/iap-enabled')"
+gcloud iap web get-iam-policy --resource-type=cloud-run --service=docagent-front `
+  --region=europe-west9 --project docagent-lilia
+```
+
+| Choice | Why |
+| --- | --- |
+| A Google Group, not a list of emails | A new visitor is a click in Google Groups, not an IAM change |
+| `roles/iap.httpsResourceAccessor` only | The group can open the front end and nothing else: no `run.invoker` on the API, no access to the project |
+
+The deployment workflow leaves IAP as it is: `gcloud run deploy` keeps the settings it
+is not given.
+
 ## Automatic deployment (GitHub Actions)
 
 [deploy.yml](../.github/workflows/deploy.yml) runs after a successful CI on a push to
