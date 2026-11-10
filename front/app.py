@@ -136,7 +136,6 @@ with st.sidebar:
         st.error(f"API {problem} at {API_URL}")
     else:
         st.success("API online")
-        st.caption(f"Translator: {health['translator']} · LLM: {health['llm'] or '—'}")
 
 
 def translation_tab(health: dict | None) -> None:
