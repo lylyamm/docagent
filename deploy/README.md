@@ -120,40 +120,41 @@ API has copied the data (`data downloaded`) and loaded the model (`search index 
 
 ## Demo access (IAP)
 
-Visitors open `https://docagent-front-51066993529.europe-west9.run.app` directly.
-Identity-Aware Proxy is turned on on the front-end service itself (no load balancer):
-it asks for Google sign-in and lets in only the members of the Google Group
-`docagent-demo@googlegroups.com`. A visitor asks to join the group, the owner accepts or
-refuses the request in Google Groups: nothing to run, no redeployment.
+IAP on `docagent-front`, access for the members of `docagent-demo@googlegroups.com`.
 
-Set up once. The first time, in the console (a project without an organization needs
-the OAuth consent screen, *External*): Cloud Run, `docagent-front`, *Security*, enable
-IAP. The same with gcloud:
+Once, in the console:
+
+1. Google Auth Platform: audience *External*, home page `https://lylyamm.github.io/docagent/`,
+   privacy policy `https://lylyamm.github.io/docagent/privacy.html`, authorized domain
+   `lylyamm.github.io`, then *Publish app*.
+2. Cloud Run, `docagent-front`, *Security*: enable IAP, *Custom OAuth*, *Auto generate
+   credentials*, *Save*.
+
+Access for the group:
 
 ```powershell
-gcloud run services update docagent-front --iap --region europe-west9 --project docagent-lilia
-
 gcloud iap web add-iam-policy-binding --resource-type=cloud-run --service=docagent-front `
   --region=europe-west9 --project docagent-lilia `
   --member "group:docagent-demo@googlegroups.com" --role roles/iap.httpsResourceAccessor
 ```
 
+Access denied page (only this field: `gcloud iap settings set` replaces every setting,
+including the OAuth client):
+
+```powershell
+$token = gcloud auth print-access-token
+$url = "https://iap.googleapis.com/v1/projects/51066993529/iap_web/cloud_run-europe-west9/services/docagent-front:iapSettings?updateMask=iapSettings.applicationSettings.accessDeniedPageSettings"
+$body = '{"applicationSettings":{"accessDeniedPageSettings":{"accessDeniedPageUri":"https://lylyamm.github.io/docagent/"}}}'
+Invoke-RestMethod -Method Patch -Uri $url -Headers @{Authorization = "Bearer $token"} -ContentType "application/json" -Body $body
+```
+
 Check:
 
 ```powershell
-gcloud run services describe docagent-front --region europe-west9 --project docagent-lilia `
-  --format "value(metadata.annotations.'run.googleapis.com/iap-enabled')"
+gcloud iap settings get --project docagent-lilia --resource-type=cloud-run --service=docagent-front --region=europe-west9
 gcloud iap web get-iam-policy --resource-type=cloud-run --service=docagent-front `
   --region=europe-west9 --project docagent-lilia
 ```
-
-| Choice | Why |
-| --- | --- |
-| A Google Group, not a list of emails | A new visitor is a click in Google Groups, not an IAM change |
-| `roles/iap.httpsResourceAccessor` only | The group can open the front end and nothing else: no `run.invoker` on the API, no access to the project |
-
-The deployment workflow leaves IAP as it is: `gcloud run deploy` keeps the settings it
-is not given.
 
 ## Automatic deployment (GitHub Actions)
 

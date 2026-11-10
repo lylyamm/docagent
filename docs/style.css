@@ -11,3 +11,5 @@ a { color: var(--accent); }
 ol, ul { padding-left: 22px; }
 img { max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; }
 footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+.button { display: inline-block; padding: 12px 22px; border-radius: 8px; background: var(--accent); color: var(--bg); font-weight: 600; text-decoration: none; }
+.button:hover { opacity: 0.9; }

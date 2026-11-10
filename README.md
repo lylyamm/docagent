@@ -14,12 +14,9 @@ Work with climate and energy reports (IPCC, IEA, French High Council on Climate)
 
 ## Live demo
 
-The application runs on Cloud Run behind Google sign-in. Access is approved by hand:
-
-1. With a Google account, ask to join the group [docagent-demo](https://groups.google.com/g/docagent-demo).
-2. Once the request is accepted, open **https://docagent-front-51066993529.europe-west9.run.app** and sign in with the same account.
-
-The services scale to zero: after a quiet period, the first visit waits about one minute while the API wakes up. A new member may also wait a few minutes before the sign-in lets them in. What the demo keeps, and for how long: [privacy note](https://lylyamm.github.io/docagent/privacy.html).
+1. Open https://docagent-front-51066993529.europe-west9.run.app in Chrome.
+2. Sign in with a Google account and click "ask to join".
+3. Once your request is accepted, open the same link again, signed in with the same Google account.
 
 ## What it does
 
